@@ -23,6 +23,8 @@ func Unhandled(request *Message) {
 type Context struct {
 	HandlerForProfile map[string]Handler
 	DefaultHandler    Handler
+	LogMessages       bool
+	LogFrames         bool
 }
 
 // Creates a new Context with an empty dispatch table.
@@ -32,31 +34,34 @@ func NewContext() *Context {
 	}
 }
 
+func (context *Context) start(ws *websocket.Conn) *Sender {
+	r := newReceiver(context, ws)
+	r.sender = newSender(context, ws, r)
+	r.sender.start()
+	return r.sender
+}
+
 // Opens a connection to a host.
 func (context *Context) Dial(url string, origin string) (*Sender, error) {
 	ws, err := websocket.Dial(url, "BLIP", origin)
 	if err != nil {
 		return nil, err
 	}
-	r := newReceiver(context, ws)
-	r.sender = newSender(ws, r)
-	r.sender.start()
-	go r.receiveLoop()
-	return r.sender, nil
+	sender := context.start(ws)
+	go sender.receiver.receiveLoop()
+	return sender, nil
 }
 
 // Creates an HTTP handler that will receive connections for this Context
 func (context *Context) HTTPHandler() http.Handler {
 	return websocket.Handler(func(ws *websocket.Conn) {
 		log.Printf("** Start handler...")
-		r := newReceiver(context, ws)
-		r.sender = newSender(ws, r)
-		r.sender.start()
-		err := r.receiveLoop()
+		sender := context.start(ws)
+		err := sender.receiver.receiveLoop()
 		if err != nil {
 			log.Printf("** Handler exited: %v", err)
 		}
-		r.sender.Stop()
+		sender.Stop()
 	})
 }
 
@@ -77,7 +82,7 @@ func (context *Context) dispatchRequest(request *Message, sender *Sender) {
 		}
 	}()
 
-	log.Printf("INCOMING REQUEST: %s", request)
+	context.logMessage("INCOMING REQUEST: %s", request)
 	handler := context.HandlerForProfile[request.Properties["Profile"]]
 	if handler == nil {
 		handler = context.DefaultHandler
@@ -97,8 +102,24 @@ func (context *Context) dispatchResponse(response *Message) {
 		}
 	}()
 
-	log.Printf("INCOMING RESPONSE: %s", response)
+	context.logMessage("INCOMING RESPONSE: %s", response)
 	//panic("UNIMPLEMENTED") //TODO
+}
+
+func (context *Context) log(fmt string, params ...interface{}) {
+	log.Printf("BLIP: "+fmt, params...)
+}
+
+func (context *Context) logMessage(fmt string, params ...interface{}) {
+	if context.LogMessages {
+		context.log(fmt, params...)
+	}
+}
+
+func (context *Context) logFrame(fmt string, params ...interface{}) {
+	if context.LogFrames {
+		context.log(fmt, params...)
+	}
 }
 
 //  Copyright (c) 2013 Jens Alfke.

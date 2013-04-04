@@ -3,7 +3,6 @@ package blip
 import (
 	"bytes"
 	"encoding/binary"
-	"log"
 	"sync"
 
 	"code.google.com/p/go.net/websocket"
@@ -14,15 +13,17 @@ const kDefaultFrameSize = 4096
 
 // The sending side of a BLIP connection. Used to send requests and to close the connection.
 type Sender struct {
+	context         *Context
 	conn            *websocket.Conn
 	receiver        *receiver
 	queue           []*Message
 	cond            *sync.Cond
-	numRequestsSent uint32
+	numRequestsSent MessageNumber
 }
 
-func newSender(conn *websocket.Conn, receiver *receiver) *Sender {
+func newSender(context *Context, conn *websocket.Conn, receiver *receiver) *Sender {
 	return &Sender{
+		context:  context,
 		conn:     conn,
 		receiver: receiver,
 		queue:    []*Message{},
@@ -53,7 +54,7 @@ func (sender *Sender) _push(msg *Message, new bool) bool { // requires lock
 	if sender.queue == nil {
 		return false
 	}
-	log.Printf("Push %v", msg)
+	sender.context.logFrame("Push %v", msg)
 
 	index := 0
 	n := len(sender.queue)
@@ -113,20 +114,35 @@ func (sender *Sender) send(msg *Message) bool {
 		sender.numRequestsSent++
 		msg.number = sender.numRequestsSent
 		if !msg.NoReply() {
-			sender.receiver.awaitResponse(msg.Response())
+			sender.receiver.awaitResponse(msg.createResponse())
 		}
 	}
-	log.Printf("Sending message: %s", msg)
+	sender.context.logMessage("Sending message: %s", msg)
 	return sender._push(msg, true)
 }
 
-// Sends a new outgoing request.
+// Sends a new outgoing request to be delivered asynchronously.
 // Returns false if the message can't be queued because the Sender has stopped.
 func (sender *Sender) Send(msg *Message) bool {
 	if msg.Type() != RequestType {
 		panic("Don't send responses using Sender.Send")
 	}
 	return sender.send(msg)
+}
+
+func (sender *Sender) Backlog() (incomingRequests, incomingResponses, outgoingRequests, outgoingResponses int) {
+	sender.cond.L.Lock()
+	defer sender.cond.L.Unlock()
+
+	incomingRequests, incomingResponses = sender.receiver.backlog()
+	for _, message := range sender.queue {
+		if message.Type() == RequestType {
+			outgoingRequests++
+		} else {
+			outgoingResponses++
+		}
+	}
+	return
 }
 
 // Stops the sender's goroutine.
@@ -147,7 +163,7 @@ func (sender *Sender) Close() {
 func (sender *Sender) start() {
 	sender.conn.PayloadType = websocket.BinaryFrame
 	go (func() {
-		log.Printf("Sender starting...")
+		sender.context.log("Sender starting...")
 		for {
 			msg := sender.pop()
 			if msg == nil {
@@ -161,7 +177,7 @@ func (sender *Sender) start() {
 			}
 
 			body, flags := msg.nextFrameToSend(frameSize)
-			log.Printf("Sending frame: %v (flags=%8b, size=%5d", msg, flags, len(body))
+			sender.context.logFrame("Sending frame: %v (flags=%8b, size=%5d", msg, flags, len(body))
 			var frame bytes.Buffer
 			binary.Write(&frame, binary.BigEndian, msg.number)
 			binary.Write(&frame, binary.BigEndian, flags)
@@ -172,7 +188,7 @@ func (sender *Sender) start() {
 				sender.requeue(msg) // requeue it so it can send its next frame later
 			}
 		}
-		log.Printf("Sender stopped")
+		sender.context.log("Sender stopped")
 	})()
 }
 

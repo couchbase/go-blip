@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"log"
+	"sync"
 
 	"code.google.com/p/go.net/websocket"
 )
@@ -12,27 +13,20 @@ import (
 type receiver struct {
 	context                  *Context
 	conn                     *websocket.Conn
-	numRequestsReceived      uint32
-	pendingRequests          map[uint32]*Message
-	pendingResponses         map[uint32]*Message
-	maxPendingResponseNumber uint32
+	numRequestsReceived      MessageNumber
+	pendingRequests          map[MessageNumber]*Message
+	pendingResponses         map[MessageNumber]*Message
+	maxPendingResponseNumber MessageNumber
 	sender                   *Sender
+	mutex                    sync.Mutex
 }
 
 func newReceiver(context *Context, conn *websocket.Conn) *receiver {
 	return &receiver{
 		conn:             conn,
 		context:          context,
-		pendingRequests:  map[uint32]*Message{},
-		pendingResponses: map[uint32]*Message{},
-	}
-}
-
-func (r *receiver) awaitResponse(response *Message) {
-	//TODO: Synchronize
-	r.pendingResponses[response.number] = response
-	if response.number > r.maxPendingResponseNumber {
-		r.maxPendingResponseNumber = response.number
+		pendingRequests:  map[MessageNumber]*Message{},
+		pendingResponses: map[MessageNumber]*Message{},
 	}
 }
 
@@ -58,12 +52,12 @@ func (r *receiver) handleIncomingFrame(frame []byte) error {
 		return fmt.Errorf("Illegally short frame")
 	}
 	reader := bytes.NewReader(frame)
-	var requestNumber uint32
+	var requestNumber MessageNumber
 	var flags frameFlags
 	binary.Read(reader, binary.BigEndian, &requestNumber)
 	binary.Read(reader, binary.BigEndian, &flags)
 	frame = frame[kFrameHeaderSize:]
-	log.Printf("Received frame: #%3d, flags=%10b, length=%d", requestNumber, flags, len(frame))
+	r.context.logFrame("Received frame: #%3d, flags=%10b, length=%d", requestNumber, flags, len(frame))
 
 	complete := (flags & kMoreComing) == 0
 	switch MessageType(flags & kTypeMask) {
@@ -75,10 +69,7 @@ func (r *receiver) handleIncomingFrame(frame []byte) error {
 					delete(r.pendingRequests, requestNumber)
 				}
 			} else if requestNumber == r.numRequestsReceived+1 {
-				request = &Message{
-					flags:  flags | kMoreComing,
-					number: requestNumber,
-				}
+				request = newIncomingMessage(requestNumber, flags)
 				if !complete {
 					r.pendingRequests[requestNumber] = request
 				}
@@ -86,6 +77,7 @@ func (r *receiver) handleIncomingFrame(frame []byte) error {
 			} else {
 				return fmt.Errorf("Bad incoming request number %d", requestNumber)
 			}
+
 			if err := request.receivedFrame(frame, flags); err != nil {
 				return err
 			}
@@ -96,30 +88,57 @@ func (r *receiver) handleIncomingFrame(frame []byte) error {
 		}
 	case ResponseType, ErrorType:
 		{
-			//TODO: Synchronize
-			response := r.pendingResponses[requestNumber]
+			response, err := r.getPendingResponse(requestNumber, complete)
+			if err != nil {
+				return err
+			}
 			if response != nil {
-				if complete {
-					delete(r.pendingResponses, requestNumber)
-				}
 				if err := response.receivedFrame(frame, flags); err != nil {
 					return err
 				}
-				if response.complete {
-					// Asynchronously dispatch the response to the app's handler
-					go r.context.dispatchResponse(response)
+				// Notify the original request that its response is available:
+				if response.complete && response.inResponseTo != nil {
+					go response.inResponseTo.responseComplete(response)
 				}
-
-			} else if requestNumber <= r.maxPendingResponseNumber {
-				log.Printf("?? Unexpected response frame to my msg #%d", requestNumber) // benign
-			} else {
-				return fmt.Errorf("Bogus message number %d in response", requestNumber)
 			}
 		}
 	default:
-		log.Printf("Ignoring incoming message type with flags 0x%x", flags)
+		log.Printf("BLIP: Ignoring incoming message type with flags 0x%x", flags)
 	}
 	return nil
+}
+
+// pendingResponses is accessed from both the receiveLoop goroutine and the sender's goroutine,
+// so it needs synchronization.
+func (r *receiver) awaitResponse(response *Message) {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+	r.pendingResponses[response.number] = response
+	if response.number > r.maxPendingResponseNumber {
+		r.maxPendingResponseNumber = response.number
+	}
+}
+
+func (r *receiver) getPendingResponse(requestNumber MessageNumber, remove bool) (response *Message, err error) {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+	response = r.pendingResponses[requestNumber]
+	if response != nil {
+		if remove {
+			delete(r.pendingResponses, requestNumber)
+		}
+	} else if requestNumber <= r.maxPendingResponseNumber {
+		log.Printf("BLIP: Unexpected response frame to my msg #%d", requestNumber) // benign
+	} else {
+		err = fmt.Errorf("Bogus message number %d in response", requestNumber)
+	}
+	return
+}
+
+func (r *receiver) backlog() (pendingRequest, pendingResponses int) {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+	return len(r.pendingRequests), len(r.pendingResponses)
 }
 
 //  Copyright (c) 2013 Jens Alfke.

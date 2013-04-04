@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"log"
+	"sync"
 )
 
 // Property names that are encoded as single bytes (first is Ctrl-A, etc.)
@@ -23,16 +23,20 @@ var kSpecialProperties = []string{
 	"Error-Domain",
 }
 
+type MessageNumber uint32
+
 // A BLIP message. It could be a request or response or error, and it could be from me or the peer.
 type Message struct {
-	Outgoing   bool              // Is this a message created locally?
-	Properties map[string]string // The message's metadata, similar to HTTP headers.
-	Body       []byte            // The message body. MIME type is defined by "Content-Type" property
-	number     uint32            // The sequence number of the message in the connection.
-	flags      frameFlags        // Message flags as seen on the first frame.
-	complete   bool              // Has this message been completely received?
-	encoded    []byte            // Encoded props+body yet to be sent (or partially received)
-	response   *Message          // Response to this message, if it's a request
+	Outgoing     bool              // Is this a message created locally?
+	Properties   map[string]string // The message's metadata, similar to HTTP headers.
+	Body         []byte            // The message body. MIME type is defined by "Content-Type" property
+	number       MessageNumber     // The sequence number of the message in the connection.
+	flags        frameFlags        // Message flags as seen on the first frame.
+	complete     bool              // Has this message been completely received?
+	encoded      []byte            // Encoded props+body yet to be sent (or partially received)
+	response     *Message          // Response to this message, if it's a request
+	inResponseTo *Message          // Message this is a response to
+	cond         *sync.Cond
 }
 
 func (message *Message) String() string {
@@ -59,7 +63,15 @@ func NewRequest() *Message {
 		flags:      frameFlags(RequestType),
 		Outgoing:   true,
 		Properties: map[string]string{},
+		cond:       sync.NewCond(&sync.Mutex{}),
 	}
+}
+
+func (message *Message) SerialNumber() MessageNumber {
+	if message.number == 0 {
+		panic("Unsent message has no serial number yet")
+	}
+	return message.number
 }
 
 // The type of message: request, response or error
@@ -129,13 +141,19 @@ func (request *Message) Response() *Message {
 		if request.flags&kNoReply != 0 {
 			return nil
 		}
-		response = &Message{
-			flags:      frameFlags(ResponseType) | (request.flags & kUrgent),
-			number:     request.number,
-			Outgoing:   !request.Outgoing,
-			Properties: map[string]string{},
+		if request.Outgoing {
+			request.cond.L.Lock()
+			defer request.cond.L.Unlock()
+			for request.response == nil {
+				request.cond.Wait()
+			}
+			response = request.response
+		} else {
+			response = request.createResponse()
+			response.flags |= request.flags & kUrgent
+			response.Properties = map[string]string{}
+			request.response = response
 		}
-		request.response = response
 	}
 	return response
 }
@@ -159,13 +177,40 @@ func (response *Message) SetError(errDomain string, errCode int) {
 
 //////// INTERNALS:
 
+func newIncomingMessage(number MessageNumber, flags frameFlags) *Message {
+	return &Message{
+		flags:  flags | kMoreComing,
+		number: number,
+		cond:   sync.NewCond(&sync.Mutex{}),
+	}
+}
+
+func (request *Message) createResponse() *Message {
+	return &Message{
+		flags:        frameFlags(ResponseType) | (request.flags & kUrgent) | kMoreComing,
+		number:       request.number,
+		Outgoing:     !request.Outgoing,
+		inResponseTo: request,
+		cond:         sync.NewCond(&sync.Mutex{}),
+	}
+}
+
+func (request *Message) responseComplete(response *Message) {
+	request.cond.L.Lock()
+	defer request.cond.L.Unlock()
+	if request.response != nil {
+		panic(fmt.Sprintf("Multiple responses to %s", request))
+	}
+	request.response = response
+	request.cond.Broadcast()
+}
+
 func (m *Message) nextFrameToSend(maxSize int) ([]byte, frameFlags) {
 	if m.number == 0 || !m.Outgoing {
 		panic("Can't send this message")
 	}
 
 	if m.encoded == nil {
-		log.Printf("Now sending #%d", m.number)
 		m.encoded = m.encode()
 	}
 
@@ -185,6 +230,13 @@ func (m *Message) nextFrameToSend(maxSize int) ([]byte, frameFlags) {
 }
 
 func (m *Message) receivedFrame(frame []byte, flags frameFlags) error {
+	m.cond.L.Lock()
+	defer m.cond.L.Unlock()
+
+	if m.flags&kMoreComing == 0 {
+		panic("Message was already complete")
+	}
+
 	// Frame types must match, except that a response may turn out to be an error:
 	frameType := MessageType(flags & kTypeMask)
 	curType := MessageType(m.flags & kTypeMask)
