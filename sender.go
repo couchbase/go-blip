@@ -9,17 +9,24 @@ import (
 	"code.google.com/p/go.net/websocket"
 )
 
+// Size of frame to send by default. This is arbitrary.
 const kDefaultFrameSize = 4096
 
+// The sending side of a BLIP connection. Used to send requests and to close the connection.
 type Sender struct {
-	queue []*Message
-	cond  *sync.Cond
+	conn            *websocket.Conn
+	receiver        *receiver
+	queue           []*Message
+	cond            *sync.Cond
+	numRequestsSent uint32
 }
 
-func NewSender() *Sender {
+func newSender(conn *websocket.Conn, receiver *receiver) *Sender {
 	return &Sender{
-		queue: []*Message{},
-		cond:  sync.NewCond(&sync.Mutex{}),
+		conn:     conn,
+		receiver: receiver,
+		queue:    []*Message{},
+		cond:     sync.NewCond(&sync.Mutex{}),
 	}
 }
 
@@ -39,14 +46,13 @@ func (sender *Sender) pop() *Message {
 	return msg
 }
 
-func (sender *Sender) push(msg *Message, new bool) bool {
-	sender.cond.L.Lock()
-	defer sender.cond.L.Unlock()
-
+func (sender *Sender) _push(msg *Message, new bool) bool { // requires lock
+	if !msg.Outgoing {
+		panic("Not an outgoing message")
+	}
 	if sender.queue == nil {
 		return false
 	}
-
 	log.Printf("Push %v", msg)
 
 	index := 0
@@ -59,7 +65,7 @@ func (sender *Sender) push(msg *Message, new bool) bool {
 				index += 2
 
 				break
-			} else if new && sender.queue[index].bytesToSend == nil {
+			} else if new && sender.queue[index].encoded == nil {
 				// But have to keep message starts in order
 				index += 1
 				break
@@ -86,13 +92,41 @@ func (sender *Sender) push(msg *Message, new bool) bool {
 	return true
 }
 
+func (sender *Sender) requeue(msg *Message) bool {
+	sender.cond.L.Lock()
+	defer sender.cond.L.Unlock()
+
+	return sender._push(msg, false)
+}
+
 // Posts a message to be delivered asynchronously.
 // Returns false if the message can't be queued because the sender has stopped.
-func (sender *Sender) Enqueue(msg *Message) bool {
-	if msg.bytesToSend != nil {
+func (sender *Sender) send(msg *Message) bool {
+	if msg.encoded != nil {
 		panic("Message is already enqueued")
 	}
-	return sender.push(msg, true)
+
+	sender.cond.L.Lock()
+	defer sender.cond.L.Unlock()
+
+	if msg.Type() == RequestType {
+		sender.numRequestsSent++
+		msg.number = sender.numRequestsSent
+		if !msg.NoReply() {
+			sender.receiver.awaitResponse(msg.Response())
+		}
+	}
+	log.Printf("Sending message: %s", msg)
+	return sender._push(msg, true)
+}
+
+// Sends a new outgoing request.
+// Returns false if the message can't be queued because the Sender has stopped.
+func (sender *Sender) Send(msg *Message) bool {
+	if msg.Type() != RequestType {
+		panic("Don't send responses using Sender.Send")
+	}
+	return sender.send(msg)
 }
 
 // Stops the sender's goroutine.
@@ -104,9 +138,14 @@ func (sender *Sender) Stop() {
 	sender.cond.Broadcast()
 }
 
+func (sender *Sender) Close() {
+	sender.Stop()
+	sender.conn.Close()
+}
+
 // Spawns a goroutine that will write frames to the connection until Stop() is called.
-func (sender *Sender) Start(conn *websocket.Conn) {
-	conn.PayloadType = websocket.BinaryFrame
+func (sender *Sender) start() {
+	sender.conn.PayloadType = websocket.BinaryFrame
 	go (func() {
 		log.Printf("Sender starting...")
 		for {
@@ -127,10 +166,10 @@ func (sender *Sender) Start(conn *websocket.Conn) {
 			binary.Write(&frame, binary.BigEndian, msg.number)
 			binary.Write(&frame, binary.BigEndian, flags)
 			frame.Write(body)
-			conn.Write(frame.Bytes())
+			sender.conn.Write(frame.Bytes())
 
 			if (flags & kMoreComing) != 0 {
-				sender.push(msg, false) // requeue it so it can send its next frame later
+				sender.requeue(msg) // requeue it so it can send its next frame later
 			}
 		}
 		log.Printf("Sender stopped")

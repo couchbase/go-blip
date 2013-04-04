@@ -9,40 +9,52 @@ import (
 	"code.google.com/p/go.net/websocket"
 )
 
-type Receiver struct {
-	context             *Context
-	numRequestsReceived uint32
-	pendingRequests     map[uint32]*Message
-	numRequestsSent     uint32
-	pendingResponses    map[uint32]*Message
-	sender              *Sender
+type receiver struct {
+	context                  *Context
+	conn                     *websocket.Conn
+	numRequestsReceived      uint32
+	pendingRequests          map[uint32]*Message
+	pendingResponses         map[uint32]*Message
+	maxPendingResponseNumber uint32
+	sender                   *Sender
 }
 
-func NewReceiver(context *Context) *Receiver {
-	return &Receiver{
+func newReceiver(context *Context, conn *websocket.Conn) *receiver {
+	return &receiver{
+		conn:             conn,
 		context:          context,
 		pendingRequests:  map[uint32]*Message{},
 		pendingResponses: map[uint32]*Message{},
 	}
 }
 
-func (r *Receiver) ReceiveLoop(ws *websocket.Conn) error {
+func (r *receiver) awaitResponse(response *Message) {
+	//TODO: Synchronize
+	r.pendingResponses[response.number] = response
+	if response.number > r.maxPendingResponseNumber {
+		r.maxPendingResponseNumber = response.number
+	}
+}
+
+func (r *receiver) receiveLoop() error {
 	for {
 		// Receive the next raw WebSocket frame:
 		var frame []byte
-		if err := websocket.Message.Receive(ws, &frame); err != nil {
+		if err := websocket.Message.Receive(r.conn, &frame); err != nil {
+			log.Printf("ReceiveLoop exiting with WebSocket error: %v", err)
 			return err
 		}
 		if err := r.handleIncomingFrame(frame); err != nil {
+			log.Printf("ReceiveLoop exiting with BLIP error: %v", err)
 			return err
 		}
 	}
 	return nil
 }
 
-func (r *Receiver) handleIncomingFrame(frame []byte) error {
+func (r *receiver) handleIncomingFrame(frame []byte) error {
 	// Parse BLIP header:
-	if len(frame) < 6 {
+	if len(frame) < kFrameHeaderSize {
 		return fmt.Errorf("Illegally short frame")
 	}
 	reader := bytes.NewReader(frame)
@@ -50,7 +62,7 @@ func (r *Receiver) handleIncomingFrame(frame []byte) error {
 	var flags frameFlags
 	binary.Read(reader, binary.BigEndian, &requestNumber)
 	binary.Read(reader, binary.BigEndian, &flags)
-	frame = frame[6:]
+	frame = frame[kFrameHeaderSize:]
 	log.Printf("Received frame: #%3d, flags=%10b, length=%d", requestNumber, flags, len(frame))
 
 	complete := (flags & kMoreComing) == 0
@@ -82,9 +94,9 @@ func (r *Receiver) handleIncomingFrame(frame []byte) error {
 				go r.context.dispatchRequest(request, r.sender)
 			}
 		}
-	case ResponseType:
-	case ErrorType:
+	case ResponseType, ErrorType:
 		{
+			//TODO: Synchronize
 			response := r.pendingResponses[requestNumber]
 			if response != nil {
 				if complete {
@@ -98,7 +110,7 @@ func (r *Receiver) handleIncomingFrame(frame []byte) error {
 					go r.context.dispatchResponse(response)
 				}
 
-			} else if requestNumber <= r.numRequestsSent {
+			} else if requestNumber <= r.maxPendingResponseNumber {
 				log.Printf("?? Unexpected response frame to my msg #%d", requestNumber) // benign
 			} else {
 				return fmt.Errorf("Bogus message number %d in response", requestNumber)

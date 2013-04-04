@@ -19,6 +19,9 @@ const (
 	kMeta       = frameFlags(0x100)
 )
 
+// Frame header consists of 32-bit message number + 16-bit flags
+const kFrameHeaderSize = 6
+
 //  Copyright (c) 2013 Jens Alfke.
 //  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file
 //  except in compliance with the License. You may obtain a copy of the License at

@@ -32,14 +32,27 @@ func NewContext() *Context {
 	}
 }
 
+// Opens a connection to a host.
+func (context *Context) Dial(url string, origin string) (*Sender, error) {
+	ws, err := websocket.Dial(url, "BLIP", origin)
+	if err != nil {
+		return nil, err
+	}
+	r := newReceiver(context, ws)
+	r.sender = newSender(ws, r)
+	r.sender.start()
+	go r.receiveLoop()
+	return r.sender, nil
+}
+
 // Creates an HTTP handler that will receive connections for this Context
 func (context *Context) HTTPHandler() http.Handler {
 	return websocket.Handler(func(ws *websocket.Conn) {
 		log.Printf("** Start handler...")
-		r := NewReceiver(context)
-		r.sender = NewSender()
-		r.sender.Start(ws)
-		err := r.ReceiveLoop(ws)
+		r := newReceiver(context, ws)
+		r.sender = newSender(ws, r)
+		r.sender.start()
+		err := r.receiveLoop()
 		if err != nil {
 			log.Printf("** Handler exited: %v", err)
 		}
@@ -60,7 +73,7 @@ func (context *Context) dispatchRequest(request *Message, sender *Sender) {
 			}
 		}
 		if response != nil {
-			sender.Enqueue(response)
+			sender.send(response)
 		}
 	}()
 
@@ -76,7 +89,16 @@ func (context *Context) dispatchRequest(request *Message, sender *Sender) {
 }
 
 func (context *Context) dispatchResponse(response *Message) {
-	panic("UNIMPLEMENTED") //TODO
+	defer func() {
+		// On return/panic, log a warning:
+		if panicked := recover(); panicked != nil {
+			stack := debug.Stack()
+			log.Printf("*** PANIC handling BLIP response %v: %v:\n%s", response, panicked, stack)
+		}
+	}()
+
+	log.Printf("INCOMING RESPONSE: %s", response)
+	//panic("UNIMPLEMENTED") //TODO
 }
 
 //  Copyright (c) 2013 Jens Alfke.

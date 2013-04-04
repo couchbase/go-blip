@@ -25,14 +25,14 @@ var kSpecialProperties = []string{
 
 // A BLIP message. It could be a request or response or error, and it could be from me or the peer.
 type Message struct {
-	Outgoing    bool              // Is this a message created locally?
-	Properties  map[string]string // The message's metadata, similar to HTTP headers.
-	Body        []byte            // The message body. MIME type is defined by "Content-Type" property
-	number      uint32            // The sequence number of the message in the connection.
-	flags       frameFlags        // Message flags as seen on the first frame.
-	complete    bool              // Has this message been completely received?
-	bytesToSend []byte            // Data still waiting to be sent in outgoing frames
-	response    *Message          // Response to this message, if it's a request
+	Outgoing   bool              // Is this a message created locally?
+	Properties map[string]string // The message's metadata, similar to HTTP headers.
+	Body       []byte            // The message body. MIME type is defined by "Content-Type" property
+	number     uint32            // The sequence number of the message in the connection.
+	flags      frameFlags        // Message flags as seen on the first frame.
+	complete   bool              // Has this message been completely received?
+	encoded    []byte            // Encoded props+body yet to be sent (or partially received)
+	response   *Message          // Response to this message, if it's a request
 }
 
 func (message *Message) String() string {
@@ -104,9 +104,17 @@ func (message *Message) setFlag(flag frameFlags, value bool) {
 }
 
 func (message *Message) assertMutable() {
-	if !message.Outgoing || message.bytesToSend != nil {
+	if !message.Outgoing || message.encoded != nil {
 		panic("Message can't be modified")
 	}
+}
+
+func (request *Message) Profile() string {
+	return request.Properties["Profile"]
+}
+
+func (request *Message) SetProfile(profile string) {
+	request.Properties["Profile"] = profile
 }
 
 // Returns the response message to this request. Its properties and body are initially empty.
@@ -156,27 +164,28 @@ func (m *Message) nextFrameToSend(maxSize int) ([]byte, frameFlags) {
 		panic("Can't send this message")
 	}
 
-	if m.bytesToSend == nil {
+	if m.encoded == nil {
 		log.Printf("Now sending #%d", m.number)
-		m.bytesToSend = m.encode()
+		m.encoded = m.encode()
 	}
 
 	var frame []byte
 	flags := m.flags
-	lengthToWrite := len(m.bytesToSend)
+	lengthToWrite := len(m.encoded)
 	if lengthToWrite > maxSize {
-		frame = m.bytesToSend[0:maxSize]
-		m.bytesToSend = m.bytesToSend[maxSize:]
+		frame = m.encoded[0:maxSize]
+		m.encoded = m.encoded[maxSize:]
 		flags |= kMoreComing
 	} else {
-		frame = m.bytesToSend
-		m.bytesToSend = []byte{}
+		frame = m.encoded
+		m.encoded = []byte{}
 		flags &^= kMoreComing
 	}
 	return frame, flags
 }
 
 func (m *Message) receivedFrame(frame []byte, flags frameFlags) error {
+	// Frame types must match, except that a response may turn out to be an error:
 	frameType := MessageType(flags & kTypeMask)
 	curType := MessageType(m.flags & kTypeMask)
 	if frameType != curType {
@@ -187,25 +196,26 @@ func (m *Message) receivedFrame(frame []byte, flags frameFlags) error {
 		}
 	}
 
-	m.Body = append(m.Body, frame...)
+	m.encoded = append(m.encoded, frame...)
 
 	if m.Properties == nil {
 		// Try to extract the properties:
 		var err error
-		m.Properties, m.Body, err = decodeProperties(m.Body)
+		m.Properties, m.encoded, err = decodeProperties(m.encoded)
 		if err != nil {
 			return err
 		}
 	}
 
 	if (flags & kMoreComing) == 0 {
-		// After last frame, decode the data:
+		// After last frame, decode the body:
 		m.flags &^= kMoreComing
 		if m.Properties == nil {
 			return fmt.Errorf("Missing or invalid properties")
 		}
-		if m.flags&kCompressed != 0 && len(m.Body) > 0 {
-			unzipper, err := gzip.NewReader(bytes.NewBuffer(m.Body))
+		if m.flags&kCompressed != 0 && len(m.encoded) > 0 {
+			// Uncompress the body:
+			unzipper, err := gzip.NewReader(bytes.NewBuffer(m.encoded))
 			if err != nil {
 				return err
 			}
@@ -214,10 +224,10 @@ func (m *Message) receivedFrame(frame []byte, flags frameFlags) error {
 			if err != nil {
 				return err
 			}
-			if err != nil {
-				return err
-			}
+		} else {
+			m.Body = m.encoded
 		}
+		m.encoded = nil
 		m.complete = true
 	}
 	return nil

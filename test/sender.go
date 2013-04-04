@@ -1,37 +1,36 @@
 package main
 
 import (
-	"fmt"
-	"net/http"
+	"math/rand"
+	"time"
 
 	"github.com/snej/go-blip"
 )
 
-// This program acts as a listener equivalent to the Objective-C one in MYNetwork's
+// This program acts as a sender equivalent to the Objective-C one in MYNetwork's
 // BLIPWebSocketTest.m.
 
 func main() {
 	context := blip.NewContext()
-	context.HandlerForProfile["BLIPTest/EchoData"] = dispatchEcho
-
-	http.Handle("/test", context.HTTPHandler())
-	err := http.ListenAndServe(":12345", nil)
+	sender, err := context.Dial("ws://localhost:12345/test", "http://localhost")
 	if err != nil {
-		panic("ListenAndServe: " + err.Error())
+		panic("Error opening WebSocket: " + err.Error())
 	}
-}
 
-func dispatchEcho(request *blip.Message) {
-	for i, b := range request.Body {
-		if b != byte(i%256) {
-			panic(fmt.Sprintf("Incorrect body: %x", request.Body))
+	for {
+		request := blip.NewRequest()
+		request.SetProfile("BLIPTest/EchoData")
+		body := make([]byte, rand.Intn(100000))
+		for i := 0; i < len(body); i++ {
+			body[i] = byte(i % 256)
 		}
+		request.Body = body
+		sender.Send(request)
+
+		time.Sleep(100 * time.Millisecond)
 	}
-	panic("FOO")
-	if response := request.Response(); response != nil {
-		response.Body = request.Body
-		response.Properties["Content-Type"] = request.Properties["Content-Type"]
-	}
+
+	sender.Close()
 }
 
 //  Copyright (c) 2013 Jens Alfke.
