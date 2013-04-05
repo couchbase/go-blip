@@ -5,7 +5,6 @@ import (
 	"compress/gzip"
 	"encoding/binary"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"sync"
 )
@@ -21,6 +20,15 @@ var kSpecialProperties = []string{
 	"Channel",
 	"Error-Code",
 	"Error-Domain",
+}
+
+var kSpecialPropertyEncoder map[string][]byte
+
+func init() {
+	kSpecialPropertyEncoder = make(map[string][]byte, len(kSpecialProperties))
+	for i, prop := range kSpecialProperties {
+		kSpecialPropertyEncoder[prop] = []byte{byte(i + 1)}
+	}
 }
 
 type MessageNumber uint32
@@ -251,7 +259,11 @@ func (m *Message) receivedFrame(frame []byte, flags frameFlags) error {
 		}
 	}
 
-	m.encoded = append(m.encoded, frame...)
+	if m.encoded == nil {
+		m.encoded = frame
+	} else {
+		m.encoded = append(m.encoded, frame...)
+	}
 
 	if m.Properties == nil {
 		// Try to extract the properties:
@@ -290,10 +302,32 @@ func (m *Message) receivedFrame(frame []byte, flags frameFlags) error {
 
 // Encodes the properties and body of a message.
 func (m *Message) encode() []byte {
-	var encoder bytes.Buffer
-	encodeProperties(m.Properties, &encoder)
+	// First convert the property strings into byte arrays, and add up their sizes:
+	strings := make([][]byte, 2*len(m.Properties))
+	i := 0
+	size := 0
+	for key, value := range m.Properties {
+		strings[i] = encodeProperty(key)
+		strings[i+1] = encodeProperty(value)
+		size += len(strings[i]) + len(strings[i+1]) + 2
+		i += 2
+	}
+	if size > 65535 {
+		panic("Message properties too large")
+	}
+
+	encoder := bytes.NewBuffer(make([]byte, 0, 2+size+len(m.Body)))
+
+	// Now write the size prefix and the null-terminated strings:
+	binary.Write(encoder, binary.BigEndian, uint16(size))
+	for _, str := range strings {
+		encoder.Write(str)
+		encoder.Write([]byte{0})
+	}
+
+	// Finally write the body:
 	if m.flags&kCompressed != 0 && len(m.Body) > 0 {
-		zipper := gzip.NewWriter(&encoder)
+		zipper := gzip.NewWriter(encoder)
 		zipper.Write(m.Body)
 		zipper.Close()
 	} else {
@@ -302,20 +336,12 @@ func (m *Message) encode() []byte {
 	return encoder.Bytes()
 }
 
-func encodeProperties(properties map[string]string, encoder io.Writer) {
-	var buffer bytes.Buffer
-	for key, value := range properties {
-		buffer.WriteString(key)
-		buffer.WriteByte(0)
-		buffer.WriteString(value)
-		buffer.WriteByte(0)
+func encodeProperty(prop string) []byte {
+	if encoded, found := kSpecialPropertyEncoder[prop]; found {
+		return encoded
+	} else {
+		return []byte(prop)
 	}
-	size := len(buffer.Bytes())
-	if size > 65535 {
-		panic("Message properties > 64kbytes")
-	}
-	binary.Write(encoder, binary.BigEndian, uint16(size))
-	encoder.Write(buffer.Bytes())
 }
 
 func decodeProperties(body []byte) (properties map[string]string, remainder []byte, err error) {
@@ -349,17 +375,8 @@ func decodeProperties(body []byte) (properties map[string]string, remainder []by
 	}
 	properties = make(map[string]string, nProps)
 	for i := 0; i < len(eachProp); i += 2 {
-		var key string
-		if len(eachProp[i]) == 1 {
-			index := int(eachProp[i][0]) - 1
-			if index >= len(kSpecialProperties) {
-				continue
-			}
-			key = kSpecialProperties[index]
-		} else {
-			key = string(eachProp[i])
-		}
-		value := string(eachProp[i+1])
+		key := decodeProperty(eachProp[i])
+		value := decodeProperty(eachProp[i+1])
 		if _, exists := properties[key]; exists {
 			err = fmt.Errorf("Duplicate property name")
 			return
@@ -367,6 +384,16 @@ func decodeProperties(body []byte) (properties map[string]string, remainder []by
 		properties[key] = value
 	}
 	return
+}
+
+func decodeProperty(encoded []byte) string {
+	if len(encoded) == 1 {
+		index := int(encoded[0]) - 1
+		if index < len(kSpecialProperties) {
+			return kSpecialProperties[index]
+		}
+	}
+	return string(encoded)
 }
 
 //  Copyright (c) 2013 Jens Alfke.

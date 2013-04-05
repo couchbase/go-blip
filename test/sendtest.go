@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"os"
 	"runtime"
+	"runtime/pprof"
 	"sync"
 	"time"
 
@@ -14,7 +16,10 @@ import (
 const kMessageInterval float64 = 0.000
 const kNumToSend = 10000
 const kMaxPending = 10000
+const kMaxBodySize = 100000
+
 const verbosity = 0
+const profiling = false
 
 // This program acts as a sender equivalent to the Objective-C one in MYNetwork's
 // BLIPWebSocketTest.m.
@@ -67,13 +72,22 @@ func main() {
 	pendingResponses = map[blip.MessageNumber]bool{}
 
 	log.Printf("Sending %d messages...", kNumToSend)
+
+	if profiling {
+		f, err := os.Create("heap.pprof")
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer pprof.WriteHeapProfile(f)
+	}
+
 	for sentCount < kNumToSend {
 		if sentCount%1000 == 0 {
 			//log.Printf("Sent %d messages (backlog = %d)", sentCount, pendingCount)
 		}
 		request := blip.NewRequest()
 		request.SetProfile("BLIPTest/EchoData")
-		body := make([]byte, rand.Intn(100000))
+		body := make([]byte, rand.Intn(kMaxBodySize))
 		for i := 0; i < len(body); i++ {
 			body[i] = byte(i % 256)
 		}
