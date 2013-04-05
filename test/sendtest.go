@@ -11,10 +11,10 @@ import (
 	"github.com/snej/go-blip"
 )
 
-const kMessageInterval float64 = 0.0005
+const kMessageInterval float64 = 0.000
 const kNumToSend = 10000
-const kMaxPending = 1000
-const verbose = false
+const kMaxPending = 10000
+const verbosity = 0
 
 // This program acts as a sender equivalent to the Objective-C one in MYNetwork's
 // BLIPWebSocketTest.m.
@@ -29,7 +29,7 @@ func addPending(request *blip.Message) int {
 	pendingResponses[request.SerialNumber()] = true
 	pendingCount++
 	sentCount++
-	if verbose {
+	if verbosity > 0 {
 		log.Printf(">>> Sending request: %s %#v +%dbytes (%d pending)",
 			request, request.Properties, len(request.Body), pendingCount)
 	}
@@ -44,7 +44,7 @@ func removePending(response *blip.Message) int {
 	}
 	delete(pendingResponses, response.SerialNumber())
 	pendingCount--
-	if verbose {
+	if verbosity > 0 {
 		log.Printf("<<< Response arrived: %s %#v +%dbytes (%d pending)",
 			response, response.Properties, len(response.Body), pendingCount)
 	}
@@ -57,8 +57,8 @@ func main() {
 	log.Printf("Set GOMAXPROCS to %d", maxProcs)
 
 	context := blip.NewContext()
-	context.LogMessages = verbose
-	context.LogFrames = verbose
+	context.LogMessages = verbosity > 1
+	context.LogFrames = verbosity > 2
 	sender, err := context.Dial("ws://localhost:12345/test", "http://localhost")
 	if err != nil {
 		panic("Error opening WebSocket: " + err.Error())
@@ -68,6 +68,9 @@ func main() {
 
 	log.Printf("Sending %d messages...", kNumToSend)
 	for sentCount < kNumToSend {
+		if sentCount%1000 == 0 {
+			//log.Printf("Sent %d messages (backlog = %d)", sentCount, pendingCount)
+		}
 		request := blip.NewRequest()
 		request.SetProfile("BLIPTest/EchoData")
 		body := make([]byte, rand.Intn(100000))

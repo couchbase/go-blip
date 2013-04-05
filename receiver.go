@@ -13,6 +13,7 @@ import (
 type receiver struct {
 	context                  *Context
 	conn                     *websocket.Conn
+	channel                  chan []byte
 	numRequestsReceived      MessageNumber
 	pendingRequests          map[MessageNumber]*Message
 	pendingResponses         map[MessageNumber]*Message
@@ -25,12 +26,14 @@ func newReceiver(context *Context, conn *websocket.Conn) *receiver {
 	return &receiver{
 		conn:             conn,
 		context:          context,
+		channel:          make(chan []byte, 10),
 		pendingRequests:  map[MessageNumber]*Message{},
 		pendingResponses: map[MessageNumber]*Message{},
 	}
 }
 
 func (r *receiver) receiveLoop() error {
+	go r.parseLoop()
 	for {
 		// Receive the next raw WebSocket frame:
 		var frame []byte
@@ -38,12 +41,19 @@ func (r *receiver) receiveLoop() error {
 			log.Printf("ReceiveLoop exiting with WebSocket error: %v", err)
 			return err
 		}
-		if err := r.handleIncomingFrame(frame); err != nil {
-			log.Printf("ReceiveLoop exiting with BLIP error: %v", err)
-			return err
-		}
+		r.channel <- frame
 	}
 	return nil
+}
+
+func (r *receiver) parseLoop() {
+	for {
+		frame := <-r.channel
+		if err := r.handleIncomingFrame(frame); err != nil {
+			log.Printf("ReceiveLoop exiting with BLIP error: %v", err)
+			return
+		}
+	}
 }
 
 func (r *receiver) handleIncomingFrame(frame []byte) error {

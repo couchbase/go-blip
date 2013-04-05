@@ -141,6 +141,9 @@ func (request *Message) Response() *Message {
 		if request.flags&kNoReply != 0 {
 			return nil
 		}
+		if request.number == 0 {
+			panic("Can't get response before message has been sent")
+		}
 		if request.Outgoing {
 			request.cond.L.Lock()
 			defer request.cond.L.Unlock()
