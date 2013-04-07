@@ -9,6 +9,7 @@ const kInitialQueueCapacity = 10
 // A queue of outgoing messages. Used by Sender to schedule which frames to send.
 type messageQueue struct {
 	context         *Context
+	maxCount        int
 	queue           []*Message
 	numRequestsSent MessageNumber
 	cond            *sync.Cond
@@ -16,9 +17,10 @@ type messageQueue struct {
 
 func newMessageQueue(context *Context) *messageQueue {
 	return &messageQueue{
-		context: context,
-		queue:   make([]*Message, 0, kInitialQueueCapacity),
-		cond:    sync.NewCond(&sync.Mutex{}),
+		context:  context,
+		queue:    make([]*Message, 0, kInitialQueueCapacity),
+		cond:     sync.NewCond(&sync.Mutex{}),
+		maxCount: context.MaxSendQueueCount,
 	}
 }
 
@@ -26,6 +28,7 @@ func (q *messageQueue) _push(msg *Message, new bool) bool { // requires lock
 	if !msg.Outgoing {
 		panic("Not an outgoing message")
 	}
+
 	if q.queue == nil {
 		return false
 	}
@@ -73,6 +76,11 @@ func (q *messageQueue) push(msg *Message) bool {
 
 	isNew := msg.number == 0
 	if isNew {
+		// When adding a new message, block till the queue is under its maxCount:
+		for q.maxCount > 0 && len(q.queue) >= q.maxCount && q.queue != nil {
+			q.cond.Wait()
+		}
+
 		if msg.Type() != RequestType {
 			panic("Response has no number")
 		}
@@ -97,6 +105,10 @@ func (q *messageQueue) pop() *Message {
 
 	msg := q.queue[0]
 	q.queue = q.queue[1:]
+
+	if len(q.queue) == q.maxCount-1 {
+		q.cond.Signal()
+	}
 	return msg
 }
 

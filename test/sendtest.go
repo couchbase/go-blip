@@ -13,16 +13,18 @@ import (
 	"github.com/snej/go-blip"
 )
 
-const kMessageInterval float64 = 0.000
-const kNumToSend = 10000
+// This program acts as a sender equivalent to the Objective-C one in MYNetwork's
+// BLIPWebSocketTest.m.
+
+const kMessageInterval float64 = 0.000 // Seconds to wait after sending each message
+const kNumToSend = 10000               // Number of messages to send
+const kMaxBodySize = 100000            // Max body size of each message
+const kPercentCompressed = 25          // percentage of messages that are sent compressed
+const kMaxSendQueueCount = 100
 const kMaxPending = 10000
-const kMaxBodySize = 100000
 
 const verbosity = 0
 const profiling = false
-
-// This program acts as a sender equivalent to the Objective-C one in MYNetwork's
-// BLIPWebSocketTest.m.
 
 var pendingResponses map[blip.MessageNumber]bool
 var pendingCount, sentCount int
@@ -62,6 +64,7 @@ func main() {
 	log.Printf("Set GOMAXPROCS to %d", maxProcs)
 
 	context := blip.NewContext()
+	context.MaxSendQueueCount = kMaxSendQueueCount
 	context.LogMessages = verbosity > 1
 	context.LogFrames = verbosity > 2
 	sender, err := context.Dial("ws://localhost:12345/test", "http://localhost")
@@ -82,11 +85,9 @@ func main() {
 	}
 
 	for sentCount < kNumToSend {
-		if sentCount%1000 == 0 {
-			//log.Printf("Sent %d messages (backlog = %d)", sentCount, pendingCount)
-		}
 		request := blip.NewRequest()
 		request.SetProfile("BLIPTest/EchoData")
+		request.SetCompressed(rand.Intn(100) < kPercentCompressed)
 		body := make([]byte, rand.Intn(kMaxBodySize))
 		for i := 0; i < len(body); i++ {
 			body[i] = byte(i % 256)
@@ -96,6 +97,10 @@ func main() {
 		pending := addPending(request)
 
 		go awaitResponse(request)
+
+		if sentCount%1000 == 0 {
+			log.Printf("Sent %d messages (backlog = %d)", sentCount, pendingCount)
+		}
 
 		//incomingRequests, incomingResponses, outgoingRequests, outgoingResponses := sender.Backlog()
 		//log.Printf("Pending: %d ... %d / %d incoming ... %d / %d outgoing",

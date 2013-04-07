@@ -48,7 +48,7 @@ type Message struct {
 }
 
 func (message *Message) String() string {
-	var msgType, urgent string
+	var msgType, flags string
 	switch typeBits := message.Type(); typeBits {
 	case RequestType:
 		msgType = "MSG"
@@ -59,10 +59,13 @@ func (message *Message) String() string {
 	default:
 		msgType = fmt.Sprintf("?%d?", typeBits)
 	}
-	if message.flags&kUrgent != 0 {
-		urgent = "!"
+	if message.flags&kCompressed != 0 {
+		flags += "~"
 	}
-	return fmt.Sprintf("%s%s#%d", msgType, urgent, message.number)
+	if message.flags&kUrgent != 0 {
+		flags += "!"
+	}
+	return fmt.Sprintf("%s%s#%d", msgType, flags, message.number)
 }
 
 // Creates a new outgoing request.

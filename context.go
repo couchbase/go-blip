@@ -21,10 +21,11 @@ func Unhandled(request *Message) {
 
 // Defines how incoming requests are dispatched to handler functions.
 type Context struct {
-	HandlerForProfile map[string]Handler
-	DefaultHandler    Handler
-	LogMessages       bool
-	LogFrames         bool
+	HandlerForProfile map[string]Handler // Handler function for a request Profile
+	DefaultHandler    Handler            // Handler for all otherwise unhandled requests
+	MaxSendQueueCount int                // Max # of messages being sent at once (if >0)
+	LogMessages       bool               // If true, will log about messages
+	LogFrames         bool               // If true, will log about frames (very verbose)
 }
 
 // Creates a new Context with an empty dispatch table.
