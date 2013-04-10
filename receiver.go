@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"io"
 	"log"
 	"sync"
 
@@ -15,8 +16,8 @@ type receiver struct {
 	conn                     *websocket.Conn
 	channel                  chan []byte
 	numRequestsReceived      MessageNumber
-	pendingRequests          map[MessageNumber]*Message
-	pendingResponses         map[MessageNumber]*Message
+	pendingRequests          map[MessageNumber]io.WriteCloser
+	pendingResponses         map[MessageNumber]io.WriteCloser
 	maxPendingResponseNumber MessageNumber
 	sender                   *Sender
 	mutex                    sync.Mutex
@@ -27,8 +28,8 @@ func newReceiver(context *Context, conn *websocket.Conn) *receiver {
 		conn:             conn,
 		context:          context,
 		channel:          make(chan []byte, 10),
-		pendingRequests:  map[MessageNumber]*Message{},
-		pendingResponses: map[MessageNumber]*Message{},
+		pendingRequests:  map[MessageNumber]io.WriteCloser{},
+		pendingResponses: map[MessageNumber]io.WriteCloser{},
 	}
 }
 
@@ -68,72 +69,83 @@ func (r *receiver) handleIncomingFrame(frame []byte) error {
 	binary.Read(reader, binary.BigEndian, &flags)
 	frame = frame[kFrameHeaderSize:]
 	r.context.logFrame("Received frame: #%3d, flags=%10b, length=%d", requestNumber, flags, len(frame))
-
 	complete := (flags & kMoreComing) == 0
+
+	// Look up or create the writer stream for this message:
+	var writer io.WriteCloser
 	switch MessageType(flags & kTypeMask) {
 	case RequestType:
 		{
-			request := r.pendingRequests[requestNumber]
-			if request != nil {
+			writer = r.pendingRequests[requestNumber]
+			if writer != nil {
 				if complete {
 					delete(r.pendingRequests, requestNumber)
 				}
 			} else if requestNumber == r.numRequestsReceived+1 {
-				request = newIncomingMessage(requestNumber, flags)
-				if !complete {
-					r.pendingRequests[requestNumber] = request
-				}
 				r.numRequestsReceived++
+				request := newIncomingMessage(requestNumber, flags, nil)
+				writer = request.asyncRead(func(err error) {
+					r.context.dispatchRequest(request, r.sender)
+				})
+				if !complete {
+					r.pendingRequests[requestNumber] = writer
+				}
 			} else {
 				return fmt.Errorf("Bad incoming request number %d", requestNumber)
-			}
-
-			if err := request.receivedFrame(frame, flags); err != nil {
-				return err
-			}
-			if request.complete {
-				// Asynchronously dispatch the request to the app's handler
-				go r.context.dispatchRequest(request, r.sender)
 			}
 		}
 	case ResponseType, ErrorType:
 		{
-			response, err := r.getPendingResponse(requestNumber, complete)
+			var err error
+			writer, err = r.getPendingResponse(requestNumber, complete)
 			if err != nil {
 				return err
-			}
-			if response != nil {
-				if err := response.receivedFrame(frame, flags); err != nil {
-					return err
-				}
-				// Notify the original request that its response is available:
-				if response.complete && response.inResponseTo != nil {
-					go response.inResponseTo.responseComplete(response)
-				}
 			}
 		}
 	default:
 		log.Printf("BLIP: Ignoring incoming message type with flags 0x%x", flags)
+		return nil
+	}
+
+	if _, err := writeFull(frame, writer); err != nil {
+		return err
+	}
+	if complete {
+		writer.Close()
 	}
 	return nil
 }
 
+// Why isn't this in the io package already, when ReadFull is?
+func writeFull(buf []byte, writer io.Writer) (nWritten int, err error) {
+	for len(buf) > 0 {
+		var n int
+		n, err = writer.Write(buf)
+		if err != nil {
+			break
+		}
+		nWritten += n
+		buf = buf[n:]
+	}
+	return
+}
+
 // pendingResponses is accessed from both the receiveLoop goroutine and the sender's goroutine,
 // so it needs synchronization.
-func (r *receiver) awaitResponse(response *Message) {
+func (r *receiver) awaitResponse(number MessageNumber, writer io.WriteCloser) {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
-	r.pendingResponses[response.number] = response
-	if response.number > r.maxPendingResponseNumber {
-		r.maxPendingResponseNumber = response.number
+	r.pendingResponses[number] = writer
+	if number > r.maxPendingResponseNumber {
+		r.maxPendingResponseNumber = number
 	}
 }
 
-func (r *receiver) getPendingResponse(requestNumber MessageNumber, remove bool) (response *Message, err error) {
+func (r *receiver) getPendingResponse(requestNumber MessageNumber, remove bool) (writer io.WriteCloser, err error) {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
-	response = r.pendingResponses[requestNumber]
-	if response != nil {
+	writer = r.pendingResponses[requestNumber]
+	if writer != nil {
 		if remove {
 			delete(r.pendingResponses, requestNumber)
 		}

@@ -3,47 +3,28 @@ package blip
 import (
 	"bytes"
 	"compress/gzip"
-	"encoding/binary"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"sync"
 )
-
-// Property names that are encoded as single bytes (first is Ctrl-A, etc.)
-var kSpecialProperties = []string{
-	"Content-Type",
-	"Profile",
-	"application/octet-stream",
-	"text/plain; charset=UTF-8",
-	"text/xml",
-	"text/yaml",
-	"Channel",
-	"Error-Code",
-	"Error-Domain",
-}
-
-var kSpecialPropertyEncoder map[string][]byte
-
-func init() {
-	kSpecialPropertyEncoder = make(map[string][]byte, len(kSpecialProperties))
-	for i, prop := range kSpecialProperties {
-		kSpecialPropertyEncoder[prop] = []byte{byte(i + 1)}
-	}
-}
 
 type MessageNumber uint32
 
 // A BLIP message. It could be a request or response or error, and it could be from me or the peer.
 type Message struct {
-	Outgoing     bool              // Is this a message created locally?
-	Properties   map[string]string // The message's metadata, similar to HTTP headers.
-	Body         []byte            // The message body. MIME type is defined by "Content-Type" property
-	number       MessageNumber     // The sequence number of the message in the connection.
-	flags        frameFlags        // Message flags as seen on the first frame.
-	complete     bool              // Has this message been completely received?
-	encoded      []byte            // Encoded props+body yet to be sent (or partially received)
-	response     *Message          // Response to this message, if it's a request
-	inResponseTo *Message          // Message this is a response to
+	Outgoing   bool          // Is this a message created locally?
+	Properties Properties    // The message's metadata, similar to HTTP headers.
+	body       []byte        // The message body. MIME type is defined by "Content-Type" property
+	number     MessageNumber // The sequence number of the message in the connection.
+	flags      frameFlags    // Message flags as seen on the first frame.
+
+	reader       io.Reader // Stream that an incoming message is being read from
+	encoder      io.Reader // Stream that an outgoing message is being written to
+	readingBody  bool      // True if reader stream has been accessed by client already
+	complete     bool      // Has this message been completely received?
+	response     *Message  // Response to this message, if it's a request
+	inResponseTo *Message  // Message this is a response to
 	cond         *sync.Cond
 }
 
@@ -73,7 +54,7 @@ func NewRequest() *Message {
 	return &Message{
 		flags:      frameFlags(RequestType),
 		Outgoing:   true,
-		Properties: map[string]string{},
+		Properties: Properties{},
 		cond:       sync.NewCond(&sync.Mutex{}),
 	}
 }
@@ -127,9 +108,20 @@ func (message *Message) setFlag(flag frameFlags, value bool) {
 }
 
 func (message *Message) assertMutable() {
-	if !message.Outgoing || message.encoded != nil {
+	if !message.Outgoing || message.encoder != nil {
 		panic("Message can't be modified")
 	}
+}
+
+// Reads an incoming message's properties from the reader if necessary
+func (m *Message) readProperties() error {
+	if m.Properties != nil {
+		return nil
+	} else if m.reader == nil {
+		panic("Message has no reader")
+	}
+	m.Properties = Properties{}
+	return m.Properties.ReadFrom(m.reader)
 }
 
 func (request *Message) Profile() string {
@@ -138,6 +130,36 @@ func (request *Message) Profile() string {
 
 func (request *Message) SetProfile(profile string) {
 	request.Properties["Profile"] = profile
+}
+
+func (m *Message) BodyReader() (io.Reader, error) {
+	if m.Outgoing {
+		return bytes.NewReader(m.body), nil
+	}
+	if err := m.readProperties(); err != nil {
+		return nil, err
+	}
+	m.readingBody = true
+	return m.reader, nil
+}
+
+func (m *Message) Body() ([]byte, error) {
+	if m.body == nil && !m.Outgoing {
+		if m.readingBody {
+			panic("Already reading body as a stream")
+		}
+		body, err := ioutil.ReadAll(m.reader)
+		if err != nil {
+			return nil, err
+		}
+		m.body = body
+	}
+	return m.body, nil
+}
+
+func (m *Message) SetBody(body []byte) {
+	m.assertMutable()
+	m.body = body
 }
 
 // Returns the response message to this request. Its properties and body are initially empty.
@@ -165,7 +187,7 @@ func (request *Message) Response() *Message {
 		} else {
 			response = request.createResponse()
 			response.flags |= request.flags & kUrgent
-			response.Properties = map[string]string{}
+			response.Properties = Properties{}
 			request.response = response
 		}
 	}
@@ -181,32 +203,37 @@ func (response *Message) SetError(errDomain string, errCode int) {
 			panic("Can't call SetError on a request")
 		}
 		response.flags = (response.flags &^ kTypeMask) | frameFlags(ErrorType)
-		response.Properties = map[string]string{
+		response.Properties = Properties{
 			"Error-Domain": errDomain,
 			"Error-Code":   fmt.Sprintf("%d", errCode),
 		}
-		response.Body = nil
+		response.body = nil
 	}
 }
 
 //////// INTERNALS:
 
-func newIncomingMessage(number MessageNumber, flags frameFlags) *Message {
+func newIncomingMessage(number MessageNumber, flags frameFlags, reader io.Reader) *Message {
 	return &Message{
 		flags:  flags | kMoreComing,
 		number: number,
+		reader: reader,
 		cond:   sync.NewCond(&sync.Mutex{}),
 	}
 }
 
 func (request *Message) createResponse() *Message {
-	return &Message{
-		flags:        frameFlags(ResponseType) | (request.flags & kUrgent) | kMoreComing,
+	response := &Message{
+		flags:        frameFlags(ResponseType) | (request.flags & kUrgent),
 		number:       request.number,
 		Outgoing:     !request.Outgoing,
 		inResponseTo: request,
 		cond:         sync.NewCond(&sync.Mutex{}),
 	}
+	if !response.Outgoing {
+		response.flags |= kMoreComing
+	}
+	return response
 }
 
 func (request *Message) responseComplete(response *Message) {
@@ -219,184 +246,80 @@ func (request *Message) responseComplete(response *Message) {
 	request.cond.Broadcast()
 }
 
+//////// I/O:
+
+func (m *Message) WriteTo(writer io.Writer) error {
+	if err := m.Properties.WriteTo(writer); err != nil {
+		return err
+	}
+	var err error
+	if len(m.body) > 0 {
+		if m.Compressed() {
+			zipper := gzip.NewWriter(writer)
+			_, err = zipper.Write(m.body)
+			zipper.Close()
+		} else {
+			_, err = writer.Write(m.body)
+		}
+	}
+	return err
+}
+
+func (m *Message) ReadFrom(reader io.Reader) error {
+	if err := m.Properties.ReadFrom(reader); err != nil {
+		return err
+	}
+	if m.Compressed() {
+		unzipper, err := gzip.NewReader(reader)
+		if err != nil {
+			return err
+		}
+		defer unzipper.Close()
+		reader = unzipper
+	}
+	var err error
+	m.body, err = ioutil.ReadAll(reader)
+	return err
+}
+
+// Returns a write stream to write the incoming message's content into. When the stream is closed,
+// the message will deliver itself.
+func (m *Message) asyncRead(onComplete func(error)) io.WriteCloser {
+	reader, writer := io.Pipe()
+	go func() {
+		err := m.ReadFrom(reader)
+		onComplete(err)
+	}()
+	return writer
+}
+
 func (m *Message) nextFrameToSend(maxSize int) ([]byte, frameFlags) {
 	if m.number == 0 || !m.Outgoing {
 		panic("Can't send this message")
 	}
 
-	if m.encoded == nil {
-		m.encoded = m.encode()
+	if m.encoder == nil {
+		// Start the encoder goroutine:
+		var writer io.WriteCloser
+		m.encoder, writer = io.Pipe()
+		go func() {
+			m.WriteTo(writer)
+			writer.Close()
+		}()
 	}
 
-	var frame []byte
+	frame := make([]byte, maxSize)
 	flags := m.flags
-	lengthToWrite := len(m.encoded)
-	if lengthToWrite > maxSize {
-		frame = m.encoded[0:maxSize]
-		m.encoded = m.encoded[maxSize:]
+	size, err := io.ReadFull(m.encoder, frame)
+	if err == nil {
 		flags |= kMoreComing
 	} else {
-		frame = m.encoded
-		m.encoded = []byte{}
-		flags &^= kMoreComing
+		frame = frame[0:size]
+		if err == io.ErrUnexpectedEOF {
+			err = nil
+		}
 	}
 	return frame, flags
-}
-
-func (m *Message) receivedFrame(frame []byte, flags frameFlags) error {
-	m.cond.L.Lock()
-	defer m.cond.L.Unlock()
-
-	if m.flags&kMoreComing == 0 {
-		panic("Message was already complete")
-	}
-
-	// Frame types must match, except that a response may turn out to be an error:
-	frameType := MessageType(flags & kTypeMask)
-	curType := MessageType(m.flags & kTypeMask)
-	if frameType != curType {
-		if curType == ResponseType && frameType == ErrorType {
-			m.flags = (m.flags &^ kTypeMask) | frameFlags(frameType)
-		} else {
-			return fmt.Errorf("Frame has wrong type (%x) for message (%x)", frameType, curType)
-		}
-	}
-
-	if m.encoded == nil {
-		m.encoded = frame
-	} else {
-		m.encoded = append(m.encoded, frame...)
-	}
-
-	if m.Properties == nil {
-		// Try to extract the properties:
-		var err error
-		m.Properties, m.encoded, err = decodeProperties(m.encoded)
-		if err != nil {
-			return err
-		}
-	}
-
-	if (flags & kMoreComing) == 0 {
-		// After last frame, decode the body:
-		m.flags &^= kMoreComing
-		if m.Properties == nil {
-			return fmt.Errorf("Missing or invalid properties")
-		}
-		if m.flags&kCompressed != 0 && len(m.encoded) > 0 {
-			// Uncompress the body:
-			unzipper, err := gzip.NewReader(bytes.NewBuffer(m.encoded))
-			if err != nil {
-				return err
-			}
-			m.Body, err = ioutil.ReadAll(unzipper)
-			unzipper.Close()
-			if err != nil {
-				return err
-			}
-		} else {
-			m.Body = m.encoded
-		}
-		m.encoded = nil
-		m.complete = true
-	}
-	return nil
-}
-
-// Encodes the properties and body of a message.
-func (m *Message) encode() []byte {
-	// First convert the property strings into byte arrays, and add up their sizes:
-	strings := make([][]byte, 2*len(m.Properties))
-	i := 0
-	size := 0
-	for key, value := range m.Properties {
-		strings[i] = encodeProperty(key)
-		strings[i+1] = encodeProperty(value)
-		size += len(strings[i]) + len(strings[i+1]) + 2
-		i += 2
-	}
-	if size > 65535 {
-		panic("Message properties too large")
-	}
-
-	encoder := bytes.NewBuffer(make([]byte, 0, 2+size+len(m.Body)))
-
-	// Now write the size prefix and the null-terminated strings:
-	binary.Write(encoder, binary.BigEndian, uint16(size))
-	for _, str := range strings {
-		encoder.Write(str)
-		encoder.Write([]byte{0})
-	}
-
-	// Finally write the body:
-	if m.flags&kCompressed != 0 && len(m.Body) > 0 {
-		zipper := gzip.NewWriter(encoder)
-		zipper.Write(m.Body)
-		zipper.Close()
-	} else {
-		encoder.Write(m.Body)
-	}
-	return encoder.Bytes()
-}
-
-func encodeProperty(prop string) []byte {
-	if encoded, found := kSpecialPropertyEncoder[prop]; found {
-		return encoded
-	} else {
-		return []byte(prop)
-	}
-}
-
-func decodeProperties(body []byte) (properties map[string]string, remainder []byte, err error) {
-	remainder = body
-	if len(body) < 2 {
-		return // incomplete
-	}
-	reader := bytes.NewBuffer(body)
-	var length uint16
-	if err = binary.Read(reader, binary.BigEndian, &length); err != nil {
-		return
-	}
-	if int(length)+2 > len(body) {
-		return // incomplete
-	}
-	remainder = body[length+2:]
-	if length == 0 {
-		properties = map[string]string{}
-		return
-	}
-
-	if body[length+1] != 0 {
-		err = fmt.Errorf("Invalid properties (not NUL-terminated)")
-		return
-	}
-	eachProp := bytes.Split(body[2:length+1], []byte{0})
-	nProps := len(eachProp) / 2
-	if nProps*2 != len(eachProp) {
-		err = fmt.Errorf("Odd number of strings in properties")
-		return
-	}
-	properties = make(map[string]string, nProps)
-	for i := 0; i < len(eachProp); i += 2 {
-		key := decodeProperty(eachProp[i])
-		value := decodeProperty(eachProp[i+1])
-		if _, exists := properties[key]; exists {
-			err = fmt.Errorf("Duplicate property name")
-			return
-		}
-		properties[key] = value
-	}
-	return
-}
-
-func decodeProperty(encoded []byte) string {
-	if len(encoded) == 1 {
-		index := int(encoded[0]) - 1
-		if index < len(kSpecialProperties) {
-			return kSpecialProperties[index]
-		}
-	}
-	return string(encoded)
 }
 
 //  Copyright (c) 2013 Jens Alfke.

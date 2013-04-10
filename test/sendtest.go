@@ -24,7 +24,8 @@ const kMaxSendQueueCount = 100
 const kMaxPending = 10000
 
 const verbosity = 0
-const profiling = false
+const profilingHeap = false
+const profilingCPU = false
 
 var pendingResponses map[blip.MessageNumber]bool
 var pendingCount, sentCount int
@@ -37,8 +38,9 @@ func addPending(request *blip.Message) int {
 	pendingCount++
 	sentCount++
 	if verbosity > 0 {
+		body, _ := request.Body()
 		log.Printf(">>> Sending request: %s %#v +%dbytes (%d pending)",
-			request, request.Properties, len(request.Body), pendingCount)
+			request, request.Properties, len(body), pendingCount)
 	}
 	return pendingCount
 }
@@ -52,8 +54,9 @@ func removePending(response *blip.Message) int {
 	delete(pendingResponses, response.SerialNumber())
 	pendingCount--
 	if verbosity > 0 {
+		body, _ := response.Body()
 		log.Printf("<<< Response arrived: %s %#v +%dbytes (%d pending)",
-			response, response.Properties, len(response.Body), pendingCount)
+			response, response.Properties, len(body), pendingCount)
 	}
 	return pendingCount
 }
@@ -73,27 +76,40 @@ func main() {
 	}
 
 	pendingResponses = map[blip.MessageNumber]bool{}
+	var totalBytesSent uint64 = 0
+	var startTime = time.Now()
 
 	log.Printf("Sending %d messages...", kNumToSend)
 
-	if profiling {
+	if profilingHeap {
+		log.Printf("Writing profile to file heap.pprof")
 		f, err := os.Create("heap.pprof")
 		if err != nil {
 			log.Fatal(err)
 		}
 		defer pprof.WriteHeapProfile(f)
+	} else if profilingCPU {
+		log.Printf("Writing profile to file cpu.pprof")
+		f, err := os.Create("cpu.pprof")
+		if err != nil {
+			log.Fatal(err)
+		}
+		pprof.StartCPUProfile(f)
+		defer pprof.StopCPUProfile()
 	}
 
 	for sentCount < kNumToSend {
 		request := blip.NewRequest()
 		request.SetProfile("BLIPTest/EchoData")
+		request.Properties["Content-Type"] = "application/octet-stream"
 		request.SetCompressed(rand.Intn(100) < kPercentCompressed)
 		body := make([]byte, rand.Intn(kMaxBodySize))
 		for i := 0; i < len(body); i++ {
 			body[i] = byte(i % 256)
 		}
-		request.Body = body
+		request.SetBody(body)
 		sender.Send(request)
+		totalBytesSent += uint64(len(body))
 		pending := addPending(request)
 
 		go awaitResponse(request)
@@ -121,6 +137,10 @@ func main() {
 	}
 
 	sender.Close()
+
+	elapsed := float64(time.Now().Sub(startTime)) / float64(time.Second)
+	log.Printf("Sent & received %d Mbytes in %.3f sec (%f megabytes/sec)",
+		totalBytesSent/1000000, elapsed, float64(totalBytesSent)/elapsed/1.0e6)
 }
 
 func awaitResponse(request *blip.Message) {
@@ -130,12 +150,18 @@ func awaitResponse(request *blip.Message) {
 	if response.SerialNumber() != request.SerialNumber() {
 		panic("Mismatched serial numbers")
 	}
-	if len(response.Body) != len(request.Body) {
-		panic(fmt.Sprintf("Mismatched length in response body of %v (got %d, expected %d)",
-			response, len(response.Body), len(request.Body)))
+	body, err := response.Body()
+	if err != nil {
+		log.Printf("ERROR reading body of %s: %s", response, err)
+		return
 	}
-	for i := len(response.Body) - 1; i >= 0; i-- {
-		if response.Body[i] != request.Body[i] {
+	requestBody, _ := request.Body()
+	if len(body) != len(requestBody) {
+		panic(fmt.Sprintf("Mismatched length in response body of %v (got %d, expected %d)",
+			response, len(body), len(requestBody)))
+	}
+	for i := len(body) - 1; i >= 0; i-- {
+		if body[i] != requestBody[i] {
 			panic("Mismatched data in response body")
 		}
 	}

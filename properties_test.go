@@ -1,0 +1,70 @@
+package blip
+
+import (
+	"bytes"
+	"testing"
+
+	"github.com/couchbaselabs/go.assert"
+)
+
+func TestReadWriteProperties(t *testing.T) {
+	p := Properties{"Content-Type": "application/octet-stream", "Foo": "Bar"}
+	var writer bytes.Buffer
+	err := p.WriteTo(&writer)
+	assert.Equals(t, err, nil)
+	serialized := writer.Bytes()
+	assert.Equals(t, string(serialized), "\x00\x0C\x01\x00\x03\x00Foo\x00Bar\x00")
+
+	var p2 Properties
+	reader := bytes.NewReader(serialized)
+	err = p2.ReadFrom(reader)
+	assert.Equals(t, err, nil)
+	assert.DeepEquals(t, p2, p)
+}
+
+func TestReadWriteEmptyProperties(t *testing.T) {
+	var p Properties
+	var writer bytes.Buffer
+	err := p.WriteTo(&writer)
+	assert.Equals(t, err, nil)
+	serialized := writer.Bytes()
+	assert.Equals(t, string(serialized), "\x00\x00")
+
+	var p2 Properties
+	reader := bytes.NewReader(serialized)
+	err = p2.ReadFrom(reader)
+	assert.Equals(t, err, nil)
+	assert.DeepEquals(t, p2, p)
+}
+
+func TestReadBadProperties(t *testing.T) {
+	bad := [][2]string{
+		{"", "EOF"},
+		{"\x00", "unexpected EOF"},
+		{"\x0C", "unexpected EOF"},
+		{"\x00\x00", ""},
+		{"\x00\x0C", "EOF"},
+		{"\x00\x0C\x01\x00\x03\x00Foo\x00Ba", "unexpected EOF"},
+		{"\x00\x0C\x01\x00\x03\x00Foo\x00Bar\x00", ""},
+		{"\x00\x14\x01\x00\x03\x00Foo\x00Bar\x00Foo\x00Zog\x00", "Duplicate property name \"Foo\""},
+
+		{"\x00\x02hi", "Invalid properties (not NUL-terminated)"},
+		{"\x00\x02h\x00", "Odd number of strings in properties"},
+	}
+	var p2 Properties
+	for i, pair := range bad {
+		reader := bytes.NewReader([]byte(pair[0]))
+		err := p2.ReadFrom(reader)
+		var errStr string
+		if err == nil {
+			if reader.Len() != 0 {
+				t.Errorf("Error decoding #%d %q: No error, but left %d bytes unread", i, pair[0], reader.Len())
+			}
+		} else {
+			errStr = err.Error()
+		}
+		if errStr != pair[1] {
+			t.Errorf("Error decoding #%d %q: %q (expected %q)", i, pair[0], errStr, pair[1])
+		}
+	}
+}

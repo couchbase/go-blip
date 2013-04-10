@@ -43,7 +43,7 @@ func (q *messageQueue) _push(msg *Message, new bool) bool { // requires lock
 			if q.queue[index].Urgent() {
 				index += 2
 				break
-			} else if new && q.queue[index].encoded == nil {
+			} else if new && q.queue[index].encoder == nil {
 				// But have to keep message starts in order
 				index += 1
 				break

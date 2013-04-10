@@ -43,7 +43,7 @@ func (sender *Sender) Send(msg *Message) bool {
 // Posts a request or response to be delivered asynchronously.
 // Returns false if the message can't be queued because the Sender has stopped.
 func (sender *Sender) send(msg *Message) bool {
-	if msg.encoded != nil {
+	if msg.encoder != nil {
 		panic("Message is already enqueued")
 	}
 
@@ -52,7 +52,11 @@ func (sender *Sender) send(msg *Message) bool {
 	}
 
 	if msg.Type() == RequestType && !msg.NoReply() {
-		sender.receiver.awaitResponse(msg.createResponse())
+		response := msg.createResponse()
+		writer := response.asyncRead(func(err error) {
+			msg.responseComplete(response)
+		})
+		sender.receiver.awaitResponse(response.number, writer)
 	}
 	return true
 }
@@ -93,6 +97,7 @@ func (sender *Sender) start() {
 			}
 
 			body, flags := msg.nextFrameToSend(maxSize - kFrameHeaderSize)
+			
 			sender.context.logFrame("Sending frame: %v (flags=%8b, size=%5d", msg, flags, len(body))
 			binary.Write(buffer, binary.BigEndian, msg.number)
 			binary.Write(buffer, binary.BigEndian, flags)
@@ -101,6 +106,9 @@ func (sender *Sender) start() {
 			buffer.Reset()
 
 			if (flags & kMoreComing) != 0 {
+				if len(body) == 0 {
+					panic("empty frame should not have moreComing")
+				}
 				sender.queue.push(msg) // requeue it so it can send its next frame later
 			}
 		}

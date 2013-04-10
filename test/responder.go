@@ -2,10 +2,13 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 
 	"github.com/snej/go-blip"
 )
+
+const verbosity = 0
 
 // This program acts as a listener equivalent to the Objective-C one in MYNetwork's
 // BLIPWebSocketTest.m.
@@ -13,6 +16,8 @@ import (
 func main() {
 	context := blip.NewContext()
 	context.HandlerForProfile["BLIPTest/EchoData"] = dispatchEcho
+	context.LogMessages = verbosity > 1
+	context.LogFrames = verbosity > 2
 
 	http.Handle("/test", context.HTTPHandler())
 	err := http.ListenAndServe(":12345", nil)
@@ -22,13 +27,21 @@ func main() {
 }
 
 func dispatchEcho(request *blip.Message) {
-	for i, b := range request.Body {
+	body, err := request.Body()
+	if err != nil {
+		log.Printf("ERROR reading body of %s: %s", request, err)
+		return
+	}
+	for i, b := range body {
 		if b != byte(i%256) {
-			panic(fmt.Sprintf("Incorrect body: %x", request.Body))
+			panic(fmt.Sprintf("Incorrect body: %x", body))
 		}
 	}
+	if request.Properties["Content-Type"] != "application/octet-stream" {
+		panic(fmt.Sprintf("Incorrect properties: %#x", request.Properties))
+	}
 	if response := request.Response(); response != nil {
-		response.Body = request.Body
+		response.SetBody(body)
 		response.Properties["Content-Type"] = request.Properties["Content-Type"]
 	}
 }
