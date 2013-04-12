@@ -19,7 +19,7 @@ import (
 const kMessageInterval float64 = 0.000 // Seconds to wait after sending each message
 const kNumToSend = 10000               // Number of messages to send
 const kMaxBodySize = 100000            // Max body size of each message
-const kPercentCompressed = 25          // percentage of messages that are sent compressed
+const kPercentCompressed = 0           // percentage of messages that are sent compressed
 const kMaxSendQueueCount = 100
 const kMaxPending = 10000
 

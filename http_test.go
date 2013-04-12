@@ -1,4 +1,4 @@
-package bliphttp
+package blip
 
 import (
 	"bytes"
@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/couchbaselabs/go.assert"
-	"github.com/snej/go-blip"
 )
 
 func Test_HTTPToBLIPRequest(t *testing.T) {
@@ -19,7 +18,7 @@ func Test_HTTPToBLIPRequest(t *testing.T) {
 
 	msg := HTTPToBLIPRequest(req)
 
-	assert.Equals(t, msg.Type(), blip.RequestType)
+	assert.Equals(t, msg.Type(), RequestType)
 	assert.Equals(t, msg.Profile(), "HTTP")
 	assert.Equals(t, msg.Outgoing, true)
 	gotBody, err := msg.Body()
@@ -35,7 +34,7 @@ func Test_HTTPToBLIPRequest(t *testing.T) {
 }
 
 func Test_BLIPToHTTPRequest(t *testing.T) {
-	msg := blip.NewRequest()
+	msg := NewRequest()
 	msg.SetProfile("HTTP")
 	msg.SetBody([]byte("GET /db HTTP/1.1\r\n" +
 		"Host: foo.com\r\n" +
@@ -58,19 +57,19 @@ func Test_BLIPToHTTPRequest(t *testing.T) {
 
 func Test_ResponseWriter(t *testing.T) {
 	// Make an incoming request:
-	props := blip.Properties{"Content-Type": "text/plain"}
-	msg := blip.NewParsedIncomingMessage(blip.RequestType, props, []byte("Request data"))
+	props := Properties{"Content-Type": "text/plain"}
+	msg := NewParsedIncomingMessage(RequestType, props, []byte("Request data"))
 
 	req, _ := BLIPToHTTPRequest(msg)
 	responseMsg := msg.Response()
-	r := MakeResponseWriter(responseMsg, req)
+	r := makeResponseWriter(responseMsg, req)
 
 	// Send an HTTP response:
 	r.Header().Add("MyHeader", "17")
 	r.Write([]byte("Response data"))
-	r.(*responseWriter).Close()
+	r.Close()
 
-	assert.Equals(t, responseMsg.Type(), blip.ResponseType)
+	assert.Equals(t, responseMsg.Type(), ResponseType)
 	assert.Equals(t, responseMsg.Profile(), "HTTP")
 	assert.Equals(t, responseMsg.Outgoing, true)
 	gotBody, err := responseMsg.Body()

@@ -2,8 +2,10 @@ package main
 
 import (
 	"fmt"
+	"io/ioutil"
 	"log"
 	"net/http"
+	"runtime"
 
 	"github.com/snej/go-blip"
 )
@@ -14,10 +16,17 @@ const verbosity = 0
 // BLIPWebSocketTest.m.
 
 func main() {
+	maxProcs := runtime.NumCPU()
+	runtime.GOMAXPROCS(maxProcs)
+	log.Printf("Set GOMAXPROCS to %d", maxProcs)
+
 	context := blip.NewContext()
 	context.HandlerForProfile["BLIPTest/EchoData"] = dispatchEcho
 	context.LogMessages = verbosity > 1
 	context.LogFrames = verbosity > 2
+
+	mux := blip.AddHTTPHandler(context)
+	mux.HandleFunc("/test", httpEcho)
 
 	http.Handle("/test", context.HTTPHandler())
 	err := http.ListenAndServe(":12345", nil)
@@ -44,6 +53,28 @@ func dispatchEcho(request *blip.Message) {
 		response.SetBody(body)
 		response.Properties["Content-Type"] = request.Properties["Content-Type"]
 	}
+}
+
+func httpEcho(r http.ResponseWriter, request *http.Request) {
+	//log.Printf("Got HTTP %s %s", request.Method, request.RequestURI)
+
+	body, err := ioutil.ReadAll(request.Body)
+	if err != nil {
+		log.Printf("ERROR reading body of %s: %s", request, err)
+		return
+	}
+	for i, b := range body {
+		if b != byte(i%256) {
+			panic(fmt.Sprintf("Incorrect body: %x", body))
+		}
+	}
+	if request.Header.Get("Content-Type") != "application/octet-stream" {
+		panic(fmt.Sprintf("Incorrect headers: %#v", request.Header))
+	}
+
+	r.Header().Add("Content-Type", "application/octet-stream")
+	r.WriteHeader(201)
+	r.Write(body)
 }
 
 //  Copyright (c) 2013 Jens Alfke.
