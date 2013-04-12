@@ -133,7 +133,7 @@ func (request *Message) SetProfile(profile string) {
 }
 
 func (m *Message) BodyReader() (io.Reader, error) {
-	if m.Outgoing {
+	if m.Outgoing || m.body != nil {
 		return bytes.NewReader(m.body), nil
 	}
 	if err := m.readProperties(); err != nil {
@@ -220,6 +220,20 @@ func newIncomingMessage(number MessageNumber, flags frameFlags, reader io.Reader
 		reader: reader,
 		cond:   sync.NewCond(&sync.Mutex{}),
 	}
+}
+
+// Creates an incoming message given properties and body; used only for testing.
+func NewParsedIncomingMessage(msgType MessageType, properties Properties, body []byte) *Message {
+	if properties == nil {
+		properties = Properties{}
+	}
+	if body == nil {
+		body = []byte{}
+	}
+	msg := newIncomingMessage(1, frameFlags(msgType), nil)
+	msg.Properties = properties
+	msg.body = body
+	return msg
 }
 
 func (request *Message) createResponse() *Message {
