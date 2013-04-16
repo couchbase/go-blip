@@ -300,6 +300,7 @@ func (m *Message) ReadFrom(reader io.Reader) error {
 // the message will deliver itself.
 func (m *Message) asyncRead(onComplete func(error)) io.WriteCloser {
 	reader, writer := io.Pipe()
+	m.reader = reader
 	go func() {
 		err := m.ReadFrom(reader)
 		onComplete(err)
