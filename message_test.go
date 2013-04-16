@@ -26,7 +26,7 @@ func TestMessageEncoding(t *testing.T) {
 	assert.Equals(t, string(serialized), "\x00\x1a\x01\x00ham/rye\x00X-Weather\x00rainy\x00The white knight is sliding down the poker. He balances very badly.")
 	log.Printf("Encoded as %d bytes", len(serialized))
 
-	m2 := newIncomingMessage(1, m.flags, nil)
+	m2 := newIncomingMessage(nil, 1, m.flags, nil)
 	reader := bytes.NewReader(serialized)
 	err = m2.ReadFrom(reader)
 	assert.Equals(t, err, nil)
@@ -46,7 +46,7 @@ func TestMessageEncodingCompressed(t *testing.T) {
 	assert.Equals(t, string(serialized), "\x00\x1a\x01\x00ham/rye\x00X-Weather\x00rainy\x00\x1f\x8b\b\x00\x00\tn\x88\x00\xff\f\xca\xd1\t\xc5 \f\x05\xd0U\xee\x04\xce\xf1\x06x\v\xd8z\xd1`\x88ń\x8a\xdb\xd7\xcf\x03\xe7߈\xd5$\x88nR[@\x1c\xaeR\xc4*\xcaX\x868\xe1\x19\x9d3\xe1G\\Y\xb3\xddt\xbc\x9c\xfb\xa8\xe8N_\x00\x00\x00\xff\xffs*\xa1\xa6C\x00\x00\x00")
 	log.Printf("Encoded compressed as %d bytes", len(serialized))
 
-	m2 := newIncomingMessage(1, m.flags, nil)
+	m2 := newIncomingMessage(nil, 1, m.flags, nil)
 	reader := bytes.NewReader(serialized)
 	err = m2.ReadFrom(reader)
 	assert.Equals(t, err, nil)
@@ -86,7 +86,7 @@ func TestMessageDecoding(t *testing.T) {
 		writer.Close()
 	}()
 
-	incoming := newIncomingMessage(original.number, original.flags, reader)
+	incoming := newIncomingMessage(nil, original.number, original.flags, reader)
 	err := incoming.readProperties()
 	assert.Equals(t, err, nil)
 	assert.DeepEquals(t, incoming.Properties, original.Properties)

@@ -83,7 +83,7 @@ func (r *receiver) handleIncomingFrame(frame []byte) error {
 				}
 			} else if requestNumber == r.numRequestsReceived+1 {
 				r.numRequestsReceived++
-				request := newIncomingMessage(requestNumber, flags, nil)
+				request := newIncomingMessage(r.sender, requestNumber, flags, nil)
 				writer = request.asyncRead(func(err error) {
 					r.context.dispatchRequest(request, r.sender)
 				})

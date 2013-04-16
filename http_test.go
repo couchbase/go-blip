@@ -58,7 +58,7 @@ func Test_BLIPToHTTPRequest(t *testing.T) {
 func Test_ResponseWriter(t *testing.T) {
 	// Make an incoming request:
 	props := Properties{"Content-Type": "text/plain"}
-	msg := NewParsedIncomingMessage(RequestType, props, []byte("Request data"))
+	msg := NewParsedIncomingMessage(nil, RequestType, props, []byte("Request data"))
 
 	req, _ := BLIPToHTTPRequest(msg)
 	responseMsg := msg.Response()

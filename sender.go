@@ -3,6 +3,7 @@ package blip
 import (
 	"bytes"
 	"encoding/binary"
+	"net"
 
 	"code.google.com/p/go.net/websocket"
 )
@@ -29,6 +30,11 @@ func newSender(context *Context, conn *websocket.Conn, receiver *receiver) *Send
 	}
 }
 
+// The IP address of the remote peer.
+func (s *Sender) RemoteAddr() net.Addr {
+	return s.conn.RemoteAddr()
+}
+
 // Sends a new outgoing request to be delivered asynchronously.
 // Returns false if the message can't be queued because the Sender has stopped.
 func (sender *Sender) Send(msg *Message) bool {
@@ -43,9 +49,10 @@ func (sender *Sender) Send(msg *Message) bool {
 // Posts a request or response to be delivered asynchronously.
 // Returns false if the message can't be queued because the Sender has stopped.
 func (sender *Sender) send(msg *Message) bool {
-	if msg.encoder != nil {
+	if msg.Sender != nil || msg.encoder != nil {
 		panic("Message is already enqueued")
 	}
+	msg.Sender = sender
 
 	if !sender.queue.push(msg) {
 		return false
@@ -97,7 +104,7 @@ func (sender *Sender) start() {
 			}
 
 			body, flags := msg.nextFrameToSend(maxSize - kFrameHeaderSize)
-			
+
 			sender.context.logFrame("Sending frame: %v (flags=%8b, size=%5d", msg, flags, len(body))
 			binary.Write(buffer, binary.BigEndian, msg.number)
 			binary.Write(buffer, binary.BigEndian, flags)

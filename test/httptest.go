@@ -7,7 +7,9 @@ import (
 	"log"
 	"math/rand"
 	"net/http"
+	"os"
 	"runtime"
+	"runtime/pprof"
 	"sync"
 	"time"
 
@@ -20,8 +22,8 @@ import (
 const kMessageInterval float64 = 0.001 // Seconds to wait after sending each message
 const kNumToSend = 10000               // Number of messages to send
 const kMaxBodySize = 100000            // Max body size of each message
-const kPercentCompressed = 25          // percentage of messages that are sent compressed
-const kMaxSendQueueCount = 100
+const kPercentCompressed = 0           // percentage of messages that are sent compressed
+const kMaxSendQueueCount = 50
 const kMaxPending = 10000
 
 const verbosity = 0
@@ -47,6 +49,23 @@ func main() {
 	}
 
 	httpClient := blip.NewHTTPClient(sender)
+
+	if profilingHeap {
+		log.Printf("Writing profile to file heap.pprof")
+		f, err := os.Create("heap.pprof")
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer pprof.WriteHeapProfile(f)
+	} else if profilingCPU {
+		log.Printf("Writing profile to file cpu.pprof")
+		f, err := os.Create("cpu.pprof")
+		if err != nil {
+			log.Fatal(err)
+		}
+		pprof.StartCPUProfile(f)
+		defer pprof.StopCPUProfile()
+	}
 
 	var startTime = time.Now()
 

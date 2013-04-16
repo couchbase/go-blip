@@ -14,6 +14,7 @@ type MessageNumber uint32
 // A BLIP message. It could be a request or response or error, and it could be from me or the peer.
 type Message struct {
 	Outgoing   bool          // Is this a message created locally?
+	Sender     *Sender       // The connection that sent this message.
 	Properties Properties    // The message's metadata, similar to HTTP headers.
 	body       []byte        // The message body. MIME type is defined by "Content-Type" property
 	number     MessageNumber // The sequence number of the message in the connection.
@@ -213,8 +214,9 @@ func (response *Message) SetError(errDomain string, errCode int) {
 
 //////// INTERNALS:
 
-func newIncomingMessage(number MessageNumber, flags frameFlags, reader io.Reader) *Message {
+func newIncomingMessage(sender *Sender, number MessageNumber, flags frameFlags, reader io.Reader) *Message {
 	return &Message{
+		Sender: sender,
 		flags:  flags | kMoreComing,
 		number: number,
 		reader: reader,
@@ -223,14 +225,14 @@ func newIncomingMessage(number MessageNumber, flags frameFlags, reader io.Reader
 }
 
 // Creates an incoming message given properties and body; used only for testing.
-func NewParsedIncomingMessage(msgType MessageType, properties Properties, body []byte) *Message {
+func NewParsedIncomingMessage(sender *Sender, msgType MessageType, properties Properties, body []byte) *Message {
 	if properties == nil {
 		properties = Properties{}
 	}
 	if body == nil {
 		body = []byte{}
 	}
-	msg := newIncomingMessage(1, frameFlags(msgType), nil)
+	msg := newIncomingMessage(sender, 1, frameFlags(msgType), nil)
 	msg.Properties = properties
 	msg.body = body
 	return msg
