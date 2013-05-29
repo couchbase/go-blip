@@ -1,2 +1,2 @@
 *.pprof
-*test
+/?*test

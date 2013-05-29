@@ -55,6 +55,25 @@ func Test_BLIPToHTTPRequest(t *testing.T) {
 	assert.DeepEquals(t, body, []byte("This is the body"))
 }
 
+func Test_BLIPToHTTPRequest2(t *testing.T) {
+	msg := NewRequest()
+	msg.SetProfile("HTTP")
+	msg.SetBody([]byte("GET /db HTTP/1.1\r\n" +
+		"Content-Type: text/plain\r\n" +
+		"\r\n" +
+		"This is the body"))
+
+	req, err := BLIPToHTTPRequest(msg)
+	assert.Equals(t, err, nil)
+
+	assert.Equals(t, req.Method, "GET")
+	assert.Equals(t, req.URL.Path, "/db")
+	assert.DeepEquals(t, req.Header["Content-Type"], []string{"text/plain"})
+	body, err := ioutil.ReadAll(req.Body)
+	assert.Equals(t, err, nil)
+	assert.DeepEquals(t, body, []byte("This is the body"))
+}
+
 func Test_ResponseWriter(t *testing.T) {
 	// Make an incoming request:
 	props := Properties{"Content-Type": "text/plain"}

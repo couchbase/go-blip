@@ -13,7 +13,17 @@ func BLIPToHTTPRequest(blipRequest *Message) (*http.Request, error) {
 	if err != nil {
 		return nil, err
 	}
-	return http.ReadRequest(bufio.NewReader(body))
+	reader := bufio.NewReader(body)
+	request, err := http.ReadRequest(reader)
+	if err != nil {
+		return nil, err
+	}
+	if request.Header["Content-Length"] == nil {
+		// If there is no Content-Length, the HTTP parser won't read any of the body.
+		// So instead, assign the remainder of the message to the HTTP body.
+		request.Body = ioutil.NopCloser(reader)
+	}
+	return request, nil
 }
 
 //////// RESPONSE WRITER:

@@ -12,6 +12,8 @@ import (
 
 const verbosity = 0
 
+const kInterface = ":12345"
+
 // This program acts as a listener equivalent to the Objective-C one in MYNetwork's
 // BLIPWebSocketTest.m.
 
@@ -29,7 +31,8 @@ func main() {
 	mux.HandleFunc("/test", httpEcho)
 
 	http.Handle("/test", context.HTTPHandler())
-	err := http.ListenAndServe(":12345", nil)
+	log.Printf("Listening on %s", kInterface)
+	err := http.ListenAndServe(kInterface, nil)
 	if err != nil {
 		panic("ListenAndServe: " + err.Error())
 	}
@@ -56,12 +59,14 @@ func dispatchEcho(request *blip.Message) {
 }
 
 func httpEcho(r http.ResponseWriter, request *http.Request) {
-	//log.Printf("Got HTTP %s %s", request.Method, request.RequestURI)
-
 	body, err := ioutil.ReadAll(request.Body)
+	log.Printf("Got HTTP %s %s (%d bytes)", request.Method, request.RequestURI, len(body))
 	if err != nil {
 		log.Printf("ERROR reading body of %s: %s", request, err)
 		return
+	}
+	if len(body) == 0 {
+		panic("Empty body!")
 	}
 	for i, b := range body {
 		if b != byte(i%256) {
