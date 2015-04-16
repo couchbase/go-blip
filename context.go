@@ -6,8 +6,10 @@ import (
 	"net/http"
 	"runtime/debug"
 
-	"code.google.com/p/go.net/websocket"
+	"golang.org/x/net/websocket"
 )
+
+const blipProtocolName = "BLIP"
 
 // A function that handles an incoming BLIP request and optionally sends a response.
 // A handler is called on a new goroutine so it can take as long as it needs to.
@@ -21,11 +23,12 @@ func Unhandled(request *Message) {
 
 // Defines how incoming requests are dispatched to handler functions.
 type Context struct {
-	HandlerForProfile map[string]Handler // Handler function for a request Profile
-	DefaultHandler    Handler            // Handler for all otherwise unhandled requests
-	MaxSendQueueCount int                // Max # of messages being sent at once (if >0)
-	LogMessages       bool               // If true, will log about messages
-	LogFrames         bool               // If true, will log about frames (very verbose)
+	HandlerForProfile      map[string]Handler // Handler function for a request Profile
+	DefaultHandler         Handler            // Handler for all otherwise unhandled requests
+	UnauthenticatedHandler Handler            // If present, handles all incoming requests till Sender is authenticated
+	MaxSendQueueCount      int                // Max # of messages being sent at once (if >0)
+	LogMessages            bool               // If true, will log about messages
+	LogFrames              bool               // If true, will log about frames (very verbose)
 }
 
 // Creates a new Context with an empty dispatch table.
@@ -44,7 +47,7 @@ func (context *Context) start(ws *websocket.Conn) *Sender {
 
 // Opens a connection to a host.
 func (context *Context) Dial(url string, origin string) (*Sender, error) {
-	ws, err := websocket.Dial(url, "BLIP", origin)
+	ws, err := websocket.Dial(url, blipProtocolName, origin)
 	if err != nil {
 		return nil, err
 	}
@@ -53,9 +56,25 @@ func (context *Context) Dial(url string, origin string) (*Sender, error) {
 	return sender, nil
 }
 
-// Creates an HTTP handler that will receive connections for this Context
-func (context *Context) HTTPHandler() http.Handler {
-	return websocket.Handler(func(ws *websocket.Conn) {
+// Creates a WebSocket handshake handler
+func handshake(config *websocket.Config, rq *http.Request) error {
+	ok := false
+	for _, proto := range config.Protocol {
+		if proto == blipProtocolName {
+			ok = true
+			break
+		}
+	}
+	if !ok {
+		return &websocket.ProtocolError{"I only speak BLIP"}
+	}
+	config.Protocol = []string{blipProtocolName}
+	return nil
+}
+
+// Creates a WebSocket connection handler
+func (context *Context) WebSocketHandler() websocket.Handler {
+	return func(ws *websocket.Conn) {
 		log.Printf("** Start handler...")
 		sender := context.start(ws)
 		err := sender.receiver.receiveLoop()
@@ -63,7 +82,14 @@ func (context *Context) HTTPHandler() http.Handler {
 			log.Printf("** Handler exited: %v", err)
 		}
 		sender.Stop()
-	})
+	}
+}
+
+func (context *Context) HTTPHandler() http.Handler {
+	return &websocket.Server{
+		Handler:   context.WebSocketHandler(),
+		Handshake: handshake,
+	}
 }
 
 func (context *Context) dispatchRequest(request *Message, sender *Sender) {

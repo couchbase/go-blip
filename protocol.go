@@ -1,26 +1,27 @@
 package blip
 
 type MessageType uint16
+
 const (
-	RequestType = MessageType(0)
-	ResponseType = MessageType(1)
-	ErrorType = MessageType(2)
+	RequestType     = MessageType(0)
+	ResponseType    = MessageType(1)
+	ErrorType       = MessageType(2)
+	AckRequestType  = MessageType(4)
+	AckResponseType = MessageType(5)
 )
 
 const BLIPErrorDomain = "BLIP"
 
-type frameFlags uint16
-const (
-	kTypeMask   = frameFlags(0x00F)
-	kCompressed = frameFlags(0x010)
-	kUrgent     = frameFlags(0x020)
-	kNoReply    = frameFlags(0x040)
-	kMoreComing = frameFlags(0x080)
-	kMeta       = frameFlags(0x100)
-)
+type frameFlags uint8
 
-// Frame header consists of 32-bit message number + 16-bit flags
-const kFrameHeaderSize = 6
+const (
+	kTypeMask   = frameFlags(0x07)
+	kCompressed = frameFlags(0x08)
+	kUrgent     = frameFlags(0x10)
+	kNoReply    = frameFlags(0x20)
+	kMoreComing = frameFlags(0x40)
+	kMeta       = frameFlags(0x80)
+)
 
 //  Copyright (c) 2013 Jens Alfke.
 //  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file

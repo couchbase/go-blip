@@ -8,7 +8,7 @@ import (
 	"log"
 	"sync"
 
-	"code.google.com/p/go.net/websocket"
+	"golang.org/x/net/websocket"
 )
 
 type receiver struct {
@@ -39,7 +39,9 @@ func (r *receiver) receiveLoop() error {
 		// Receive the next raw WebSocket frame:
 		var frame []byte
 		if err := websocket.Message.Receive(r.conn, &frame); err != nil {
-			log.Printf("ReceiveLoop exiting with WebSocket error: %v", err)
+			if err != io.EOF {
+				log.Printf("receiveLoop exiting with WebSocket error: %v", err)
+			}
 			return err
 		}
 		r.channel <- frame
@@ -51,7 +53,7 @@ func (r *receiver) parseLoop() {
 	for {
 		frame := <-r.channel
 		if err := r.handleIncomingFrame(frame); err != nil {
-			log.Printf("ReceiveLoop exiting with BLIP error: %v", err)
+			log.Printf("parseLoop exiting with BLIP error: %v", err)
 			return
 		}
 	}
@@ -59,15 +61,22 @@ func (r *receiver) parseLoop() {
 
 func (r *receiver) handleIncomingFrame(frame []byte) error {
 	// Parse BLIP header:
-	if len(frame) < kFrameHeaderSize {
+	if len(frame) < 2 {
 		return fmt.Errorf("Illegally short frame")
 	}
-	reader := bytes.NewReader(frame)
-	var requestNumber MessageNumber
-	var flags frameFlags
-	binary.Read(reader, binary.BigEndian, &requestNumber)
-	binary.Read(reader, binary.BigEndian, &flags)
-	frame = frame[kFrameHeaderSize:]
+	reader := bytes.NewBuffer(frame)
+	n, err := binary.ReadUvarint(reader)
+	if err != nil {
+		return err
+	}
+	requestNumber := MessageNumber(n)
+	n, err = binary.ReadUvarint(reader)
+	if err != nil {
+		return err
+	}
+	flags := frameFlags(n)
+
+	frame = reader.Bytes()
 	r.context.logFrame("Received frame: #%3d, flags=%10b, length=%d", requestNumber, flags, len(frame))
 	complete := (flags & kMoreComing) == 0
 

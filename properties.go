@@ -5,22 +5,33 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"sort"
 )
 
 type Properties map[string]string
 
+// For testing purposes, clients can set this to true to write properties sorted by key
+var SortProperties = false
+
 // Property names that are encoded as single bytes (first is Ctrl-A, etc.)
 // CHANGING THIS ARRAY WILL BREAK PROTOCOL COMPATIBILITY!!
 var kSpecialProperties = []string{
-	"Content-Type",
 	"Profile",
+	"Error-Code",
+	"Error-Domain",
+
+	"Content-Type",
+	"application/json",
 	"application/octet-stream",
 	"text/plain; charset=UTF-8",
 	"text/xml",
-	"text/yaml",
-	"Channel",
-	"Error-Code",
-	"Error-Domain",
+
+	"Accept",
+	"Cache-Control",
+	"must-revalidate",
+	"If-Match",
+	"If-None-Match",
+	"Location",
 }
 
 var kSpecialPropertyEncoder map[string][]byte
@@ -32,10 +43,21 @@ func init() {
 	}
 }
 
+// Adapter for io.Reader to io.ByteReader
+type byteReader struct {
+	reader io.Reader
+}
+
+func (br byteReader) ReadByte() (byte, error) {
+	var p [1]byte
+	_, err := br.reader.Read(p[:])
+	return p[0], err
+}
+
 // Reads encoded Properties from a stream.
 func (properties *Properties) ReadFrom(reader io.Reader) error {
-	var length uint16
-	if err := binary.Read(reader, binary.BigEndian, &length); err != nil {
+	length, err := binary.ReadUvarint(byteReader{reader})
+	if err != nil {
 		return err
 	}
 	if length == 0 {
@@ -69,7 +91,7 @@ func (properties *Properties) ReadFrom(reader io.Reader) error {
 // Writes Properties to a stream.
 func (properties Properties) WriteTo(writer io.Writer) error {
 	// First convert the property strings into byte arrays, and add up their sizes:
-	strings := make([][]byte, 2*len(properties))
+	var strings propertyList = make(propertyList, 2*len(properties))
 	i := 0
 	size := 0
 	for key, value := range properties {
@@ -78,12 +100,15 @@ func (properties Properties) WriteTo(writer io.Writer) error {
 		size += len(strings[i]) + len(strings[i+1]) + 2
 		i += 2
 	}
-	if size > 65535 {
-		return fmt.Errorf("Message properties too large")
+
+	if SortProperties {
+		sort.Sort(strings) // Not needed for protocol, but helps unit tests
 	}
 
 	// Now write the size prefix and the null-terminated strings:
-	if err := binary.Write(writer, binary.BigEndian, uint16(size)); err != nil {
+	var lengthBuf [10]byte
+	lengthLength := binary.PutUvarint(lengthBuf[:], uint64(size))
+	if _, err := writer.Write(lengthBuf[:lengthLength]); err != nil {
 		return err
 	}
 	for _, str := range strings {
@@ -113,6 +138,23 @@ func decodeProperty(encoded []byte) string {
 		}
 	}
 	return string(encoded)
+}
+
+// Properties stored as alternating keys / values
+type propertyList [][]byte
+
+// Implementation of sort.Interface to make propertyList sortable:
+func (pl propertyList) Len() int           { return len(pl) / 2 }
+func (pl propertyList) Less(i, j int) bool { return bytes.Compare(pl[2*i], pl[2*j]) < 0 }
+func (pl propertyList) Swap(i, j int) {
+	i *= 2
+	j *= 2
+	t := pl[i]
+	pl[i] = pl[j]
+	pl[j] = t
+	t = pl[i+1]
+	pl[i+1] = pl[j+1]
+	pl[j+1] = t
 }
 
 //  Copyright (c) 2013 Jens Alfke.

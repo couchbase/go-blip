@@ -5,7 +5,7 @@ import (
 	"encoding/binary"
 	"net"
 
-	"code.google.com/p/go.net/websocket"
+	"golang.org/x/net/websocket"
 )
 
 // Size of frame to send by default. This is arbitrary.
@@ -103,11 +103,13 @@ func (sender *Sender) start() {
 				maxSize = kDefaultFrameSize
 			}
 
-			body, flags := msg.nextFrameToSend(maxSize - kFrameHeaderSize)
+			body, flags := msg.nextFrameToSend(maxSize - 10)
 
-			sender.context.logFrame("Sending frame: %v (flags=%8b, size=%5d", msg, flags, len(body))
-			binary.Write(buffer, binary.BigEndian, msg.number)
-			binary.Write(buffer, binary.BigEndian, flags)
+			sender.context.logFrame("Sending frame: %v (flags=%8b, size=%5d)", msg, flags, len(body))
+			var header [2 * binary.MaxVarintLen32]byte
+			i := binary.PutUvarint(header[:], uint64(msg.number))
+			i += binary.PutUvarint(header[i:], uint64(flags))
+			buffer.Write(header[:i])
 			buffer.Write(body)
 			sender.conn.Write(buffer.Bytes())
 			buffer.Reset()

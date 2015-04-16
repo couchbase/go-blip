@@ -61,6 +61,12 @@ func removePending(response *blip.Message) int {
 	return pendingCount
 }
 
+func getPendingCount() int {
+	mutex.Lock()
+	defer mutex.Unlock()
+	return pendingCount
+}
+
 func main() {
 	maxProcs := runtime.NumCPU()
 	runtime.GOMAXPROCS(maxProcs)
@@ -115,7 +121,7 @@ func main() {
 		go awaitResponse(request)
 
 		if sentCount%1000 == 0 {
-			log.Printf("Sent %d messages (backlog = %d)", sentCount, pendingCount)
+			log.Printf("Sent %d messages (backlog = %d)", sentCount, getPendingCount())
 		}
 
 		//incomingRequests, incomingResponses, outgoingRequests, outgoingResponses := sender.Backlog()
@@ -130,12 +136,13 @@ func main() {
 		}
 	}
 
-	log.Printf("\n\nNow waiting for the rest of the responses...\n\n")
+	log.Printf("\n\nNow waiting for the remaining %d responses...\n\n", getPendingCount())
 
-	for pendingCount > 0 {
+	for getPendingCount() > 0 {
 		time.Sleep(10 * time.Millisecond)
 	}
 
+	log.Printf("Closing...")
 	sender.Close()
 
 	elapsed := float64(time.Now().Sub(startTime)) / float64(time.Second)
