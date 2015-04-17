@@ -3,6 +3,7 @@ package blip
 import (
 	"bytes"
 	"compress/gzip"
+	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -163,6 +164,22 @@ func (m *Message) SetBody(body []byte) {
 	m.body = body
 }
 
+func (m *Message) ReadJSONBody(value interface{}) error {
+	if bodyReader, err := m.BodyReader(); err != nil {
+		return err
+	} else {
+		return json.NewDecoder(bodyReader).Decode(value)
+	}
+}
+
+func (m *Message) SetJSONBody(value interface{}) error {
+	body, err := json.Marshal(value)
+	if err == nil {
+		m.SetBody(body)
+	}
+	return err
+}
+
 // Returns the response message to this request. Its properties and body are initially empty.
 // Multiple calls return the same object.
 // If called on a NoReply request, this returns nil.
@@ -197,7 +214,7 @@ func (request *Message) Response() *Message {
 
 // Changes a pending response into an error.
 // It is safe (and a no-op) to call this on a nil Message.
-func (response *Message) SetError(errDomain string, errCode int) {
+func (response *Message) SetError(errDomain string, errCode int, message string) {
 	if response != nil {
 		response.assertMutable()
 		if response.Type() == RequestType {
@@ -208,7 +225,9 @@ func (response *Message) SetError(errDomain string, errCode int) {
 			"Error-Domain": errDomain,
 			"Error-Code":   fmt.Sprintf("%d", errCode),
 		}
-		response.body = nil
+		if message != "" {
+			response.body = []byte(message)
+		}
 	}
 }
 

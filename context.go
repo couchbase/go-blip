@@ -18,7 +18,7 @@ const blipProtocolName = "BLIP"
 type Handler func(request *Message)
 
 func Unhandled(request *Message) {
-	request.Response().SetError(BLIPErrorDomain, 404)
+	request.Response().SetError(BLIPErrorDomain, 404, "No handler for BLIP request")
 }
 
 // Defines how incoming requests are dispatched to handler functions.
@@ -100,8 +100,7 @@ func (context *Context) dispatchRequest(request *Message, sender *Sender) {
 			stack := debug.Stack()
 			log.Printf("*** PANIC handling BLIP request %v: %v:\n%s", request, panicked, stack)
 			if response != nil {
-				response.SetError(BLIPErrorDomain, 500)
-				response.Properties["Error-Message"] = fmt.Sprintf("Panic: %v", panicked)
+				response.SetError(BLIPErrorDomain, 500, fmt.Sprintf("Panic: %v", panicked))
 			}
 		}
 		if response != nil {
