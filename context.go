@@ -21,12 +21,15 @@ func Unhandled(request *Message) {
 	request.Response().SetError(BLIPErrorDomain, 404, "No handler for BLIP request")
 }
 
+type LogFn func(string, ...interface{})
+
 // Defines how incoming requests are dispatched to handler functions.
 type Context struct {
 	HandlerForProfile      map[string]Handler // Handler function for a request Profile
 	DefaultHandler         Handler            // Handler for all otherwise unhandled requests
 	UnauthenticatedHandler Handler            // If present, handles all incoming requests till Sender is authenticated
 	MaxSendQueueCount      int                // Max # of messages being sent at once (if >0)
+	Logger                 LogFn              // Logging callback; defaults to log.Printf
 	LogMessages            bool               // If true, will log about messages
 	LogFrames              bool               // If true, will log about frames (very verbose)
 }
@@ -35,6 +38,7 @@ type Context struct {
 func NewContext() *Context {
 	return &Context{
 		HandlerForProfile: map[string]Handler{},
+		Logger:            log.Printf,
 	}
 }
 
@@ -75,11 +79,11 @@ func handshake(config *websocket.Config, rq *http.Request) error {
 // Creates a WebSocket connection handler
 func (context *Context) WebSocketHandler() websocket.Handler {
 	return func(ws *websocket.Conn) {
-		log.Printf("** Start handler...")
+		context.log("** Start handler...")
 		sender := context.start(ws)
 		err := sender.receiver.receiveLoop()
 		if err != nil {
-			log.Printf("** Handler exited: %v", err)
+			context.log("** Handler exited: %v", err)
 		}
 		sender.Stop()
 	}
@@ -133,18 +137,18 @@ func (context *Context) dispatchResponse(response *Message) {
 }
 
 func (context *Context) log(fmt string, params ...interface{}) {
-	log.Printf("BLIP: "+fmt, params...)
+	context.Logger(fmt, params...)
 }
 
 func (context *Context) logMessage(fmt string, params ...interface{}) {
 	if context.LogMessages {
-		context.log(fmt, params...)
+		context.Logger(fmt, params...)
 	}
 }
 
 func (context *Context) logFrame(fmt string, params ...interface{}) {
 	if context.LogFrames {
-		context.log(fmt, params...)
+		context.Logger(fmt, params...)
 	}
 }
 

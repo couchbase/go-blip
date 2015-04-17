@@ -148,7 +148,7 @@ func (sender *Sender) requeue(msg *Message, bytesSent uint64) {
 		sender.queue.push(msg)
 	} else {
 		// or pause it till it gets an ACK
-		sender.context.logMessage("Pausing %v", msg)
+		sender.context.logFrame("Pausing %v", msg)
 		sender.icebox[msgKey{msgNo: msg.number, msgType: msg.Type()}] = msg
 	}
 }
@@ -164,7 +164,7 @@ func (sender *Sender) receivedAck(requestNumber MessageNumber, msgType MessageTy
 		if msg := sender.icebox[key]; msg != nil {
 			msg.bytesAcked = bytesReceived
 			if msg.bytesSent <= msg.bytesAcked+kMaxUnackedBytes {
-				sender.context.logMessage("Resuming %v", msg)
+				sender.context.logFrame("Resuming %v", msg)
 				delete(sender.icebox, key)
 				sender.queue.push(msg)
 			}
