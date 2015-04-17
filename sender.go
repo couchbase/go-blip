@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"net"
+	"sync"
 
 	"golang.org/x/net/websocket"
 )
@@ -12,13 +13,23 @@ import (
 const kDefaultFrameSize = 4096
 const kBigFrameSize = 4 * kDefaultFrameSize
 
+const kAckInterval = 50000      // How often to send ACKs
+const kMaxUnackedBytes = 128000 // Pause message when this many bytes are sent unacked
+
+type msgKey struct {
+	msgNo   MessageNumber
+	msgType MessageType
+}
+
 // The sending side of a BLIP connection. Used to send requests and to close the connection.
 type Sender struct {
 	context         *Context
 	conn            *websocket.Conn
 	receiver        *receiver
 	queue           *messageQueue
+	icebox          map[msgKey]*Message
 	numRequestsSent MessageNumber
+	requeueLock     sync.Mutex
 }
 
 func newSender(context *Context, conn *websocket.Conn, receiver *receiver) *Sender {
@@ -27,6 +38,7 @@ func newSender(context *Context, conn *websocket.Conn, receiver *receiver) *Send
 		conn:     conn,
 		receiver: receiver,
 		queue:    newMessageQueue(context),
+		icebox:   map[msgKey]*Message{},
 	}
 }
 
@@ -106,7 +118,7 @@ func (sender *Sender) start() {
 			body, flags := msg.nextFrameToSend(maxSize - 10)
 
 			sender.context.logFrame("Sending frame: %v (flags=%8b, size=%5d)", msg, flags, len(body))
-			var header [2 * binary.MaxVarintLen32]byte
+			var header [2 * binary.MaxVarintLen64]byte
 			i := binary.PutUvarint(header[:], uint64(msg.number))
 			i += binary.PutUvarint(header[i:], uint64(flags))
 			buffer.Write(header[:i])
@@ -118,11 +130,62 @@ func (sender *Sender) start() {
 				if len(body) == 0 {
 					panic("empty frame should not have moreComing")
 				}
-				sender.queue.push(msg) // requeue it so it can send its next frame later
+				sender.requeue(msg, uint64(len(body)))
 			}
 		}
 		sender.context.log("Sender stopped")
 	})()
+}
+
+//////// FLOW CONTROL:
+
+func (sender *Sender) requeue(msg *Message, bytesSent uint64) {
+	sender.requeueLock.Lock()
+	defer sender.requeueLock.Unlock()
+	msg.bytesSent += bytesSent
+	if msg.bytesSent <= msg.bytesAcked+kMaxUnackedBytes {
+		// requeue it so it can send its next frame later
+		sender.queue.push(msg)
+	} else {
+		// or pause it till it gets an ACK
+		sender.context.logMessage("Pausing %v", msg)
+		sender.icebox[msgKey{msgNo: msg.number, msgType: msg.Type()}] = msg
+	}
+}
+
+func (sender *Sender) receivedAck(requestNumber MessageNumber, msgType MessageType, bytesReceived uint64) {
+	sender.context.logFrame("Received ACK of %s#%d (%d bytes)", kMessageTypeName[msgType], requestNumber, bytesReceived)
+	sender.requeueLock.Lock()
+	defer sender.requeueLock.Unlock()
+	if msg := sender.queue.find(requestNumber, msgType); msg != nil {
+		msg.bytesAcked = bytesReceived
+	} else {
+		key := msgKey{msgNo: requestNumber, msgType: msgType}
+		if msg := sender.icebox[key]; msg != nil {
+			msg.bytesAcked = bytesReceived
+			if msg.bytesSent <= msg.bytesAcked+kMaxUnackedBytes {
+				sender.context.logMessage("Resuming %v", msg)
+				delete(sender.icebox, key)
+				sender.queue.push(msg)
+			}
+		}
+	}
+}
+
+func (sender *Sender) sendAck(msgNo MessageNumber, msgType MessageType, bytesReceived uint64) {
+	flags := kNoReply | kUrgent
+	sender.context.logFrame("Sending ACK of %s#%d (%d bytes)", kMessageTypeName[msgType], msgNo, bytesReceived)
+	if msgType == RequestType {
+		flags |= frameFlags(AckRequestType)
+	} else {
+		flags |= frameFlags(AckResponseType)
+	}
+	var buffer [3 * binary.MaxVarintLen64]byte
+	i := binary.PutUvarint(buffer[:], uint64(msgNo))
+	i += binary.PutUvarint(buffer[i:], uint64(flags))
+	i += binary.PutUvarint(buffer[i:], uint64(bytesReceived))
+	sender.conn.Write(buffer[0:i])
+
 }
 
 //  Copyright (c) 2013 Jens Alfke.

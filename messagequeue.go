@@ -112,6 +112,17 @@ func (q *messageQueue) pop() *Message {
 	return msg
 }
 
+func (q *messageQueue) find(msgNo MessageNumber, msgType MessageType) *Message {
+	q.cond.L.Lock()
+	defer q.cond.L.Unlock()
+	for _, message := range q.queue {
+		if message.number == msgNo && message.Type() == msgType {
+			return message
+		}
+	}
+	return nil
+}
+
 // Stops the sender's goroutine.
 func (q *messageQueue) stop() {
 	q.cond.L.Lock()

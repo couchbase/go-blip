@@ -31,7 +31,7 @@ func main() {
 	mux.HandleFunc("/test", httpEcho)
 
 	http.Handle("/test", context.HTTPHandler())
-	log.Printf("Listening on %s", kInterface)
+	log.Printf("Listening on %s/test", kInterface)
 	err := http.ListenAndServe(kInterface, nil)
 	if err != nil {
 		panic("ListenAndServe: " + err.Error())

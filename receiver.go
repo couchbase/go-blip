@@ -11,13 +11,20 @@ import (
 	"golang.org/x/net/websocket"
 )
 
+type msgStreamer struct {
+	writer       io.WriteCloser
+	bytesWritten uint64
+}
+
+type msgStreamerMap map[MessageNumber]*msgStreamer
+
 type receiver struct {
 	context                  *Context
 	conn                     *websocket.Conn
 	channel                  chan []byte
 	numRequestsReceived      MessageNumber
-	pendingRequests          map[MessageNumber]io.WriteCloser
-	pendingResponses         map[MessageNumber]io.WriteCloser
+	pendingRequests          msgStreamerMap
+	pendingResponses         msgStreamerMap
 	maxPendingResponseNumber MessageNumber
 	sender                   *Sender
 	mutex                    sync.Mutex
@@ -28,8 +35,8 @@ func newReceiver(context *Context, conn *websocket.Conn) *receiver {
 		conn:             conn,
 		context:          context,
 		channel:          make(chan []byte, 10),
-		pendingRequests:  map[MessageNumber]io.WriteCloser{},
-		pendingResponses: map[MessageNumber]io.WriteCloser{},
+		pendingRequests:  msgStreamerMap{},
+		pendingResponses: msgStreamerMap{},
 	}
 }
 
@@ -81,23 +88,26 @@ func (r *receiver) handleIncomingFrame(frame []byte) error {
 	complete := (flags & kMoreComing) == 0
 
 	// Look up or create the writer stream for this message:
-	var writer io.WriteCloser
-	switch MessageType(flags & kTypeMask) {
+	var msgStream *msgStreamer
+	msgType := MessageType(flags & kTypeMask)
+	switch msgType {
 	case RequestType:
 		{
-			writer = r.pendingRequests[requestNumber]
-			if writer != nil {
+			msgStream = r.pendingRequests[requestNumber]
+			if msgStream != nil {
 				if complete {
 					delete(r.pendingRequests, requestNumber)
 				}
 			} else if requestNumber == r.numRequestsReceived+1 {
 				r.numRequestsReceived++
 				request := newIncomingMessage(r.sender, requestNumber, flags, nil)
-				writer = request.asyncRead(func(err error) {
-					r.context.dispatchRequest(request, r.sender)
-				})
+				msgStream = &msgStreamer{
+					writer: request.asyncRead(func(err error) {
+						r.context.dispatchRequest(request, r.sender)
+					}),
+				}
 				if !complete {
-					r.pendingRequests[requestNumber] = writer
+					r.pendingRequests[requestNumber] = msgStream
 				}
 			} else {
 				return fmt.Errorf("Bad incoming request number %d", requestNumber)
@@ -106,21 +116,40 @@ func (r *receiver) handleIncomingFrame(frame []byte) error {
 	case ResponseType, ErrorType:
 		{
 			var err error
-			writer, err = r.getPendingResponse(requestNumber, complete)
+			msgStream, err = r.getPendingResponse(requestNumber, complete)
 			if err != nil {
 				return err
 			}
 		}
+	case AckRequestType, AckResponseType:
+		bytesReceived, err := binary.ReadUvarint(reader)
+		if err != nil {
+			return fmt.Errorf("Error reading ACK frame")
+		}
+		r.sender.receivedAck(requestNumber, msgType-4, bytesReceived)
+		return nil
+
 	default:
 		log.Printf("BLIP: Ignoring incoming message type with flags 0x%x", flags)
 		return nil
 	}
 
-	if _, err := writeFull(frame, writer); err != nil {
+	frameSize, err := writeFull(frame, msgStream.writer)
+	if err != nil {
 		return err
 	}
 	if complete {
-		writer.Close()
+		msgStream.writer.Close()
+	} else {
+		//FIX: This isn't the right place to do this, because this goroutine doesn't block even
+		// if the client can't read the message fast enough. The right place to send the ACK is
+		// in the goroutine that's running msgStream.writer. (Somehow...)
+		oldWritten := msgStream.bytesWritten
+		msgStream.bytesWritten += uint64(frameSize)
+		if oldWritten > 0 && (oldWritten/kAckInterval) < (msgStream.bytesWritten/kAckInterval) {
+			r.sender.sendAck(requestNumber, msgType, msgStream.bytesWritten)
+		}
+
 	}
 	return nil
 }
@@ -144,17 +173,17 @@ func writeFull(buf []byte, writer io.Writer) (nWritten int, err error) {
 func (r *receiver) awaitResponse(number MessageNumber, writer io.WriteCloser) {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
-	r.pendingResponses[number] = writer
+	r.pendingResponses[number] = &msgStreamer{writer: writer}
 	if number > r.maxPendingResponseNumber {
 		r.maxPendingResponseNumber = number
 	}
 }
 
-func (r *receiver) getPendingResponse(requestNumber MessageNumber, remove bool) (writer io.WriteCloser, err error) {
+func (r *receiver) getPendingResponse(requestNumber MessageNumber, remove bool) (msgStream *msgStreamer, err error) {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
-	writer = r.pendingResponses[requestNumber]
-	if writer != nil {
+	msgStream = r.pendingResponses[requestNumber]
+	if msgStream != nil {
 		if remove {
 			delete(r.pendingResponses, requestNumber)
 		}

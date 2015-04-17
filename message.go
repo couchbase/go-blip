@@ -20,6 +20,8 @@ type Message struct {
 	body       []byte        // The message body. MIME type is defined by "Content-Type" property
 	number     MessageNumber // The sequence number of the message in the connection.
 	flags      frameFlags    // Message flags as seen on the first frame.
+	bytesSent  uint64
+	bytesAcked uint64
 
 	reader       io.Reader // Stream that an incoming message is being read from
 	encoder      io.Reader // Stream that an outgoing message is being written to
