@@ -10,7 +10,7 @@ const (
 	AckResponseType = MessageType(5)
 )
 
-var kMessageTypeName = []string{"MSG", "RPY", "ERR", "?4?", "ACK_MSG", "ACK_RPY", "?6?", "?7?"}
+var kMessageTypeName = [8]string{"MSG", "RPY", "ERR", "?4?", "ACK_MSG", "ACK_RPY", "?6?", "?7?"}
 
 const BLIPErrorDomain = "BLIP"
 
