@@ -12,6 +12,7 @@ import (
 )
 
 type msgStreamer struct {
+	message      *Message
 	writer       io.WriteCloser
 	bytesWritten uint64
 }
@@ -102,6 +103,7 @@ func (r *receiver) handleIncomingFrame(frame []byte) error {
 				r.numRequestsReceived++
 				request := newIncomingMessage(r.sender, requestNumber, flags, nil)
 				msgStream = &msgStreamer{
+					message: request,
 					writer: request.asyncRead(func(err error) {
 						r.context.dispatchRequest(request, r.sender)
 					}),
@@ -116,7 +118,7 @@ func (r *receiver) handleIncomingFrame(frame []byte) error {
 	case ResponseType, ErrorType:
 		{
 			var err error
-			msgStream, err = r.getPendingResponse(requestNumber, complete)
+			msgStream, err = r.getPendingResponse(requestNumber, flags, complete)
 			if err != nil {
 				return err
 			}
@@ -170,20 +172,27 @@ func writeFull(buf []byte, writer io.Writer) (nWritten int, err error) {
 
 // pendingResponses is accessed from both the receiveLoop goroutine and the sender's goroutine,
 // so it needs synchronization.
-func (r *receiver) awaitResponse(number MessageNumber, writer io.WriteCloser) {
+func (r *receiver) awaitResponse(request *Message, writer io.WriteCloser) {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
-	r.pendingResponses[number] = &msgStreamer{writer: writer}
+	number := request.number
+	r.pendingResponses[number] = &msgStreamer{
+		message: request,
+		writer:  writer,
+	}
 	if number > r.maxPendingResponseNumber {
 		r.maxPendingResponseNumber = number
 	}
 }
 
-func (r *receiver) getPendingResponse(requestNumber MessageNumber, remove bool) (msgStream *msgStreamer, err error) {
+func (r *receiver) getPendingResponse(requestNumber MessageNumber, flags frameFlags, remove bool) (msgStream *msgStreamer, err error) {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 	msgStream = r.pendingResponses[requestNumber]
 	if msgStream != nil {
+		if msgStream.bytesWritten == 0 {
+			msgStream.message.flags = flags // set flags based on 1st frame of response
+		}
 		if remove {
 			delete(r.pendingResponses, requestNumber)
 		}

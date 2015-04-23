@@ -75,7 +75,7 @@ func (sender *Sender) send(msg *Message) bool {
 		writer := response.asyncRead(func(err error) {
 			msg.responseComplete(response)
 		})
-		sender.receiver.awaitResponse(response.number, writer)
+		sender.receiver.awaitResponse(response, writer)
 	}
 	return true
 }
