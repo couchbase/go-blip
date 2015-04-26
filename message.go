@@ -169,6 +169,8 @@ func (m *Message) SetJSONBody(value interface{}) error {
 	body, err := json.Marshal(value)
 	if err == nil {
 		m.SetBody(body)
+		m.Properties["Content-Type"] = "application/json"
+		m.SetCompressed(len(body) > 100)
 	}
 	return err
 }
@@ -283,9 +285,9 @@ func (m *Message) WriteTo(writer io.Writer) error {
 	var err error
 	if len(m.body) > 0 {
 		if m.Compressed() {
-			zipper := gzip.NewWriter(writer)
+			zipper := GetGZipWriter(writer)
 			_, err = zipper.Write(m.body)
-			zipper.Close()
+			ReturnGZipWriter(zipper)
 		} else {
 			_, err = writer.Write(m.body)
 		}
@@ -298,11 +300,11 @@ func (m *Message) ReadFrom(reader io.Reader) error {
 		return err
 	}
 	if m.Compressed() {
-		unzipper, err := gzip.NewReader(reader)
+		unzipper, err := GetGZipReader(reader)
 		if err != nil {
 			return err
 		}
-		defer unzipper.Close()
+		defer ReturnGZipReader(unzipper)
 		reader = unzipper
 	}
 	var err error
@@ -349,6 +351,43 @@ func (m *Message) nextFrameToSend(maxSize int) ([]byte, frameFlags) {
 		}
 	}
 	return frame, flags
+}
+
+//////// GZIP WRITER CACHE:
+
+var gzipWriterCache sync.Pool
+var gzipReaderCache sync.Pool
+
+// Gets a gzip writer from the pool, or creates a new one if the pool is empty:
+func GetGZipWriter(writer io.Writer) *gzip.Writer {
+	if gz, ok := gzipWriterCache.Get().(*gzip.Writer); ok {
+		gz.Reset(writer)
+		return gz
+	} else {
+		return gzip.NewWriter(writer)
+	}
+}
+
+// Closes a gzip writer and returns it to the pool:
+func ReturnGZipWriter(gz *gzip.Writer) {
+	gz.Close()
+	gzipWriterCache.Put(gz)
+}
+
+// Gets a gzip reader from the pool, or creates a new one if the pool is empty:
+func GetGZipReader(reader io.Reader) (*gzip.Reader, error) {
+	if gz, ok := gzipReaderCache.Get().(*gzip.Reader); ok {
+		gz.Reset(reader)
+		return gz, nil
+	} else {
+		return gzip.NewReader(reader)
+	}
+}
+
+// Closes a gzip reader and returns it to the pool:
+func ReturnGZipReader(gz *gzip.Reader) {
+	gz.Close()
+	gzipReaderCache.Put(gz)
 }
 
 //  Copyright (c) 2013 Jens Alfke.
