@@ -92,7 +92,7 @@ func (q *messageQueue) push(msg *Message) bool {
 	return q._push(msg, isNew)
 }
 
-func (q *messageQueue) pop() *Message {
+func (q *messageQueue) _maybePop(actuallyPop bool) *Message {
 	q.cond.L.Lock()
 	defer q.cond.L.Unlock()
 	for len(q.queue) == 0 && q.queue != nil {
@@ -104,13 +104,19 @@ func (q *messageQueue) pop() *Message {
 	}
 
 	msg := q.queue[0]
-	q.queue = q.queue[1:]
+	if actuallyPop {
+		q.queue = q.queue[1:]
 
-	if len(q.queue) == q.maxCount-1 {
-		q.cond.Signal()
+		if len(q.queue) == q.maxCount-1 {
+			q.cond.Signal()
+		}
 	}
 	return msg
 }
+
+func (q *messageQueue) first() *Message {return q._maybePop(false)}
+func (q *messageQueue) pop() *Message {return q._maybePop(true)}
+
 
 func (q *messageQueue) find(msgNo MessageNumber, msgType MessageType) *Message {
 	q.cond.L.Lock()

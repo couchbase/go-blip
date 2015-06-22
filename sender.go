@@ -28,6 +28,7 @@ type Sender struct {
 	receiver        *receiver
 	queue           *messageQueue
 	icebox          map[msgKey]*Message
+	curMsg          *Message
 	numRequestsSent MessageNumber
 	requeueLock     sync.Mutex
 }
@@ -104,7 +105,7 @@ func (sender *Sender) start() {
 		sender.context.log("Sender starting...")
 		buffer := bytes.NewBuffer(make([]byte, 0, kBigFrameSize))
 		for {
-			msg := sender.queue.pop()
+			msg := sender.popNextMessage()
 			if msg == nil {
 				break
 			}
@@ -139,6 +140,23 @@ func (sender *Sender) start() {
 
 //////// FLOW CONTROL:
 
+func (sender *Sender) popNextMessage() *Message {
+	sender.requeueLock.Lock()
+	sender.curMsg = nil
+	sender.requeueLock.Unlock()
+
+	msg := sender.queue.first()
+	if msg == nil {
+		return nil
+	}
+
+	sender.requeueLock.Lock()
+	defer sender.requeueLock.Unlock()
+	sender.curMsg = msg
+	sender.queue.pop()
+	return msg
+}
+
 func (sender *Sender) requeue(msg *Message, bytesSent uint64) {
 	sender.requeueLock.Lock()
 	defer sender.requeueLock.Unlock()
@@ -158,6 +176,8 @@ func (sender *Sender) receivedAck(requestNumber MessageNumber, msgType MessageTy
 	sender.requeueLock.Lock()
 	defer sender.requeueLock.Unlock()
 	if msg := sender.queue.find(requestNumber, msgType); msg != nil {
+		msg.bytesAcked = bytesReceived
+	} else if msg := sender.curMsg; msg != nil && msg.number == requestNumber && msg.Type() == msgType {
 		msg.bytesAcked = bytesReceived
 	} else {
 		key := msgKey{msgNo: requestNumber, msgType: msgType}
