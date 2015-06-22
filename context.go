@@ -17,6 +17,7 @@ const blipProtocolName = "BLIP"
 // a response, that's fine.
 type Handler func(request *Message)
 
+// Utility function that responds to a Message with a 404 error.
 func Unhandled(request *Message) {
 	request.Response().SetError(BLIPErrorDomain, 404, "No handler for BLIP request")
 }
@@ -49,7 +50,7 @@ func (context *Context) start(ws *websocket.Conn) *Sender {
 	return r.sender
 }
 
-// Opens a connection to a host.
+// Opens a BLIP connection to a host.
 func (context *Context) Dial(url string, origin string) (*Sender, error) {
 	ws, err := websocket.Dial(url, blipProtocolName, origin)
 	if err != nil {
@@ -76,7 +77,7 @@ func handshake(config *websocket.Config, rq *http.Request) error {
 	return nil
 }
 
-// Creates a WebSocket connection handler
+// Creates a WebSocket connection handler that dispatches BLIP messages to the Context.
 func (context *Context) WebSocketHandler() websocket.Handler {
 	return func(ws *websocket.Conn) {
 		context.log("** Start handler...")
@@ -89,6 +90,8 @@ func (context *Context) WebSocketHandler() websocket.Handler {
 	}
 }
 
+// Creates an HTTP handler that accepts WebSocket connections and dispatches BLIP messages
+// to the Context.
 func (context *Context) HTTPHandler() http.Handler {
 	return &websocket.Server{
 		Handler:   context.WebSocketHandler(),

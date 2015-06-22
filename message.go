@@ -23,15 +23,16 @@ type Message struct {
 	bytesSent  uint64
 	bytesAcked uint64
 
-	reader       io.Reader // Stream that an incoming message is being read from
-	encoder      io.Reader // Stream that an outgoing message is being written to
-	readingBody  bool      // True if reader stream has been accessed by client already
-	complete     bool      // Has this message been completely received?
-	response     *Message  // Response to this message, if it's a request
-	inResponseTo *Message  // Message this is a response to
-	cond         *sync.Cond
+	reader       io.Reader  // Stream that an incoming message is being read from
+	encoder      io.Reader  // Stream that an outgoing message is being written to
+	readingBody  bool       // True if reader stream has been accessed by client already
+	complete     bool       // Has this message been completely received?
+	response     *Message   // Response to this message, if it's a request
+	inResponseTo *Message   // Message this is a response to
+	cond         *sync.Cond // Used to make Response() method block until response arrives
 }
 
+// Returns a string describing the message for debugging purposes
 func (message *Message) String() string {
 	msgType := kMessageTypeName[message.Type()]
 	str := fmt.Sprintf("%s#%d", msgType, message.number)
@@ -54,6 +55,8 @@ func NewRequest() *Message {
 	}
 }
 
+// The order in which a request message was sent.
+// A response has the same serial number as its request even though it goes the other direction.
 func (message *Message) SerialNumber() MessageNumber {
 	if message.number == 0 {
 		panic("Unsent message has no serial number yet")
@@ -80,7 +83,7 @@ func (message *Message) SetUrgent(urgent bool) {
 	message.setFlag(kUrgent, urgent)
 }
 
-// Requests GZIP compression of an outgoing message's body.
+// Enables GZIP compression of an outgoing message's body.
 func (message *Message) SetCompressed(compressed bool) {
 	message.setFlag(kCompressed, compressed)
 }
@@ -119,14 +122,19 @@ func (m *Message) readProperties() error {
 	return m.Properties.ReadFrom(m.reader)
 }
 
+// The value of the "Profile" property which is used to identify a request's purpose.
 func (request *Message) Profile() string {
 	return request.Properties["Profile"]
 }
 
+// Sets the value of the "Profile" property which is used to identify a request's purpose.
 func (request *Message) SetProfile(profile string) {
 	request.Properties["Profile"] = profile
 }
 
+// Returns a Reader object from which the message body can be read.
+// If this is an incoming message the body will be streamed as the message arrives over
+// the network (and multiple calls to BodyReader() won't work.)
 func (m *Message) BodyReader() (io.Reader, error) {
 	if m.Outgoing || m.body != nil {
 		return bytes.NewReader(m.body), nil
@@ -138,6 +146,8 @@ func (m *Message) BodyReader() (io.Reader, error) {
 	return m.reader, nil
 }
 
+// Returns the entire message body as a byte array.
+// If the message is incoming, blocks until the entire body is received.
 func (m *Message) Body() ([]byte, error) {
 	if m.body == nil && !m.Outgoing {
 		if m.readingBody {
@@ -152,11 +162,13 @@ func (m *Message) Body() ([]byte, error) {
 	return m.body, nil
 }
 
+// Sets the entire body of an outgoing message.
 func (m *Message) SetBody(body []byte) {
 	m.assertMutable()
 	m.body = body
 }
 
+// Returns the message body parsed as JSON.
 func (m *Message) ReadJSONBody(value interface{}) error {
 	if bodyReader, err := m.BodyReader(); err != nil {
 		return err
@@ -165,6 +177,8 @@ func (m *Message) ReadJSONBody(value interface{}) error {
 	}
 }
 
+// Sets the message body to JSON generated from the given JSON-encodable value.
+// As a convenience this also sets the "Content-Type" property to "application/json".
 func (m *Message) SetJSONBody(value interface{}) error {
 	body, err := json.Marshal(value)
 	if err == nil {
@@ -238,7 +252,7 @@ func newIncomingMessage(sender *Sender, number MessageNumber, flags frameFlags, 
 	}
 }
 
-// Creates an incoming message given properties and body; used only for testing.
+// Creates an incoming message given properties and body; exposed only for testing.
 func NewParsedIncomingMessage(sender *Sender, msgType MessageType, properties Properties, body []byte) *Message {
 	if properties == nil {
 		properties = Properties{}

@@ -8,6 +8,7 @@ import (
 	"sort"
 )
 
+// A Message's metadata properties. These are somewhat like HTTP headers.
 type Properties map[string]string
 
 // For testing purposes, clients can set this to true to write properties sorted by key

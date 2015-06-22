@@ -1,13 +1,14 @@
 package blip
 
+// Enumeration of the different types of messages in the BLIP protocol.
 type MessageType uint16
 
 const (
-	RequestType     = MessageType(0)
-	ResponseType    = MessageType(1)
-	ErrorType       = MessageType(2)
-	AckRequestType  = MessageType(4)
-	AckResponseType = MessageType(5)
+	RequestType     = MessageType(0)  // A message initiated by a peer
+	ResponseType    = MessageType(1)  // A response to a Request
+	ErrorType       = MessageType(2)  // A response indicating failure
+	AckRequestType  = MessageType(4)  // Acknowledgement of data received from a Request (internal)
+	AckResponseType = MessageType(5)  // Acknowledgement of data received from a Response (internal)
 )
 
 var kMessageTypeName = [8]string{"MSG", "RPY", "ERR", "?4?", "ACK_MSG", "ACK_RPY", "?6?", "?7?"}

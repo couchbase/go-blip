@@ -19,6 +19,8 @@ type msgStreamer struct {
 
 type msgStreamerMap map[MessageNumber]*msgStreamer
 
+// The receiving side of a BLIP connection.
+// Handles receiving WebSocket messages as frames and assembling them into BLIP messages.
 type receiver struct {
 	context                  *Context
 	conn                     *websocket.Conn

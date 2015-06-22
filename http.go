@@ -8,7 +8,7 @@ import (
 	"net/http"
 )
 
-func BLIPToHTTPRequest(blipRequest *Message) (*http.Request, error) {
+func blipToHTTPRequest(blipRequest *Message) (*http.Request, error) {
 	body, err := blipRequest.BodyReader()
 	if err != nil {
 		return nil, err
@@ -86,10 +86,10 @@ func (r *responseWriter) Close() {
 
 // Registers a handler for HTTP requests with a BLIP Context and returns the ServeMux that
 // routes the requests. You should register your HTTP handlers with the ServeMux.
-func AddHTTPHandler(context *Context) *http.ServeMux {
+func addHTTPHandler(context *Context) *http.ServeMux {
 	mux := http.NewServeMux()
 	handler := func(request *Message) {
-		httpReq, _ := BLIPToHTTPRequest(request) //FIX: Handle error
+		httpReq, _ := blipToHTTPRequest(request) //FIX: Handle error
 		httpRes := makeResponseWriter(request.Response(), httpReq)
 		mux.ServeHTTP(httpRes, httpReq)
 		httpRes.Close()
@@ -101,7 +101,7 @@ func AddHTTPHandler(context *Context) *http.ServeMux {
 
 //////// CLIENT SIDE:
 
-func HTTPToBLIPRequest(httpReq *http.Request) *Message {
+func httpToBLIPRequest(httpReq *http.Request) *Message {
 	req := NewRequest()
 	req.SetProfile("HTTP")
 	var body bytes.Buffer
@@ -110,7 +110,7 @@ func HTTPToBLIPRequest(httpReq *http.Request) *Message {
 	return req
 }
 
-func BLIPToHTTPResponse(blipResponse *Message, httpRequest *http.Request) (*http.Response, error) {
+func blipToHTTPResponse(blipResponse *Message, httpRequest *http.Request) (*http.Response, error) {
 	if blipResponse.Type() == ErrorType {
 		return nil, fmt.Errorf("BLIP error!") //FIX: IMPLEMENT
 	}
@@ -126,14 +126,14 @@ type blipTransport struct {
 }
 
 // Creates an HTTP Client that will send its requests over the given BLIP connection.
-func NewHTTPClient(sender *Sender) *http.Client {
+func newHTTPClient(sender *Sender) *http.Client {
 	return &http.Client{Transport: &blipTransport{sender}}
 }
 
 func (bt blipTransport) RoundTrip(httpReq *http.Request) (resp *http.Response, err error) {
-	blipReq := HTTPToBLIPRequest(httpReq)
+	blipReq := httpToBLIPRequest(httpReq)
 	bt.sender.Send(blipReq)
-	return BLIPToHTTPResponse(blipReq.Response(), httpReq) // This blocks till the response arrives
+	return blipToHTTPResponse(blipReq.Response(), httpReq) // This blocks till the response arrives
 }
 
 //  Copyright (c) 2013 Jens Alfke.
