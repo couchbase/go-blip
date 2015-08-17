@@ -13,24 +13,19 @@ BLIP adds several useful features that aren't supported directly by WebSocket:
 
 ## Status
 
-This is still pretty early; I wouldn't recommend using it yet unless you're comfortable with the idea of troubleshooting or extending the code. --Jens, 12 April 2013
+The code has been tested and is working well in a branch of the Couchbase Sync Gateway, but it's not being used in the master branch yet. --Jens 8/2015
 
 ## Protocol
 
-Based on the original [BLIP protocol spec][BLIP_PROTOCOL] with the data framing replaced by WebSocket. To be precise, each BLIP frame is sent as a WebSocket message (in binary format). The BLIP frame magic-number and size fields are not needed, so the frame header consists of:
-
-	[4 bytes] Request Number
-	[2 bytes] Flags
-
-Everything else is as described in the BLIP protocol docs.
-
-(This protocol is subject to change. I think it could be made more compact, and it might make sense to tie it into the WebSocket extension mechanism.)
+Here's the [protocol documentation][BLIP_PROTOCOL].
 
 ## HTTP Over BLIP (Over WebSocket)
 
-I'm working on support for layering HTTP over BLIP — that is, wrapping an HTTP request in a BLIP request, and its response in the BLIP response. The protocol is very simple: the body of the request and the response is simply the regular HTTP wire protocol. The BLIP properties are unused, although I've been setting the Profile property to "HTTP" to make the messages easy to recognize.
+This repo includes some experimental support for layering HTTP over BLIP — that is, wrapping an HTTP request in a BLIP request, and its response in the BLIP response. The protocol is very simple: the body of the request and the response is simply the regular HTTP wire protocol. The BLIP properties are unused, although I've been setting the Profile property to "HTTP" to make the messages easy to recognize.
 
 It may seem weird to layer HTTP over a protocol that's tunneling through HTTP in the first place, but this allows for an arbitrary number of simultaneous HTTP requests without having to worry about exceeding a limited socket pool. It also allows for server-initiated requests, which are good for "push" APIs.
+
+(This may likely be obsoleted by HTTP 2, which has basically the same benefits.)
 
 ## Go API
 
@@ -93,5 +88,5 @@ As mentioned above, note that both 'server' and 'client' can initiate messages. 
 
 [GO]: http://golang.org
 [BLIP]: https://bitbucket.org/snej/mynetwork/wiki/BLIP/Overview
-[BLIP_PROTOCOL]: https://bitbucket.org/snej/mynetwork/wiki/BLIP/Protocol
+[BLIP_PROTOCOL]: https://github.com/couchbaselabs/BLIP-Cocoa/blob/master/Docs/BLIP%20Protocol.md
 [WEBSOCKET]: http://www.websocket.org
