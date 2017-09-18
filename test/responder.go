@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"runtime"
 
-	"github.com/snej/go-blip"
+	"github.com/couchbase/go-blip"
 )
 
 const verbosity = 0

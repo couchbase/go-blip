@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/snej/go-blip"
+	"github.com/couchbase/go-blip"
 )
 
 // This program acts as a sender equivalent to the Objective-C one in MYNetwork's
