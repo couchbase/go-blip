@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"testing"
 
+	"fmt"
+
 	"github.com/couchbaselabs/go.assert"
 )
 
@@ -15,6 +17,8 @@ func Test_HTTPToBLIPRequest(t *testing.T) {
 	req, err := http.NewRequest("GET", "http://foo.com/db", bodyReader)
 	assert.Equals(t, err, nil)
 	req.Header.Add("Content-Type", "text/plain")
+	userAgent := "go-blip"
+	req.Header.Set("User-Agent", userAgent)
 
 	msg := httpToBLIPRequest(req)
 
@@ -24,13 +28,13 @@ func Test_HTTPToBLIPRequest(t *testing.T) {
 	gotBody, err := msg.Body()
 	assert.Equals(t, err, nil)
 	assert.Equals(t, string(gotBody),
-		"GET /db HTTP/1.1\r\n"+
+		fmt.Sprintf("GET /db HTTP/1.1\r\n"+
 			"Host: foo.com\r\n"+
-			"User-Agent: Go 1.1 package http\r\n"+
+			"User-Agent: %s\r\n"+
 			"Content-Length: 16\r\n"+
 			"Content-Type: text/plain\r\n"+
 			"\r\n"+
-			"This is the body")
+			"This is the body", userAgent))
 }
 
 func Test_BLIPToHTTPRequest(t *testing.T) {
@@ -38,7 +42,7 @@ func Test_BLIPToHTTPRequest(t *testing.T) {
 	msg.SetProfile("HTTP")
 	msg.SetBody([]byte("GET /db HTTP/1.1\r\n" +
 		"Host: foo.com\r\n" +
-		"User-Agent: Go 1.1 package http\r\n" +
+		"User-Agent: Go-http-client/1.1\r\n" +
 		"Content-Length: 16\r\n" +
 		"Content-Type: text/plain\r\n" +
 		"\r\n" +
