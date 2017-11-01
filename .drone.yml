@@ -3,4 +3,3 @@ build:
   commands:
     - go get
     - go test
-
