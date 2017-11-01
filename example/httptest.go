@@ -19,20 +19,9 @@ import (
 // This program acts as a sender equivalent to the Objective-C one in MYNetwork's
 // BLIPWebSocketTest.m.
 
-const kMessageInterval float64 = 0.001 // Seconds to wait after sending each message
-const kNumToSend = 10000               // Number of messages to send
-const kMaxBodySize = 100000            // Max body size of each message
-const kPercentCompressed = 0           // percentage of messages that are sent compressed
-const kMaxSendQueueCount = 50
-const kMaxPending = 10000
 
-const verbosity = 0
-const profilingHeap = false
-const profilingCPU = false
-
-var sentCount, receivedCount int
+var receivedCount int
 var totalBytesSent uint64
-var mutex sync.Mutex
 
 func main() {
 	maxProcs := runtime.NumCPU()
