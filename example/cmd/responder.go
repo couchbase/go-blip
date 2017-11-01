@@ -1,4 +1,4 @@
-package main
+package cmd
 
 import (
 	"fmt"
@@ -8,6 +8,7 @@ import (
 	"runtime"
 
 	"github.com/couchbase/go-blip"
+	"github.com/spf13/cobra"
 )
 
 const verbosity = 0
@@ -17,7 +18,20 @@ const kInterface = ":12345"
 // This program acts as a listener equivalent to the Objective-C one in MYNetwork's
 // BLIPWebSocketTest.m.
 
-func main() {
+func init() {
+	RootCmd.AddCommand(responderCmd)
+}
+
+var responderCmd = &cobra.Command{
+	Use:   "responder",
+	Short: "Respond to blip requests",
+	Long:  `Respond to blip requests`,
+	Run: func(cmd *cobra.Command, args []string) {
+		responder()
+	},
+}
+
+func responder() {
 	maxProcs := runtime.NumCPU()
 	runtime.GOMAXPROCS(maxProcs)
 	log.Printf("Set GOMAXPROCS to %d", maxProcs)

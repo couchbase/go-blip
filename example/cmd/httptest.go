@@ -1,4 +1,4 @@
-package main
+package cmd
 
 import (
 	"bytes"
@@ -10,20 +10,33 @@ import (
 	"os"
 	"runtime"
 	"runtime/pprof"
-	"sync"
 	"time"
 
 	"github.com/couchbase/go-blip"
+	"github.com/spf13/cobra"
 )
 
 // This program acts as a sender equivalent to the Objective-C one in MYNetwork's
 // BLIPWebSocketTest.m.
 
-
 var receivedCount int
 var totalBytesSent uint64
 
-func main() {
+
+func init() {
+	RootCmd.AddCommand(httpCmd)
+}
+
+var httpCmd = &cobra.Command{
+	Use:   "httpexample",
+	Short: "Use blip with http",
+	Long:  `Use blip with http`,
+	Run: func(cmd *cobra.Command, args []string) {
+		httpexample()
+	},
+}
+
+func httpexample() {
 	maxProcs := runtime.NumCPU()
 	runtime.GOMAXPROCS(maxProcs)
 	log.Printf("Set GOMAXPROCS to %d", maxProcs)

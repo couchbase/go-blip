@@ -1,4 +1,4 @@
-package main
+package cmd
 
 import (
 	"fmt"
@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/couchbase/go-blip"
+	"github.com/spf13/cobra"
 )
 
 // This program acts as a sender equivalent to the Objective-C one in MYNetwork's
@@ -23,7 +24,6 @@ const kPercentCompressed = 0           // percentage of messages that are sent c
 const kMaxSendQueueCount = 100
 const kMaxPending = 10000
 
-const verbosity = 0
 const profilingHeap = false
 const profilingCPU = false
 
@@ -31,43 +31,21 @@ var pendingResponses map[blip.MessageNumber]bool
 var pendingCount, sentCount int
 var mutex sync.Mutex
 
-func addPending(request *blip.Message) int {
-	mutex.Lock()
-	defer mutex.Unlock()
-	pendingResponses[request.SerialNumber()] = true
-	pendingCount++
-	sentCount++
-	if verbosity > 0 {
-		body, _ := request.Body()
-		log.Printf(">>> Sending request: %s %#v +%dbytes (%d pending)",
-			request, request.Properties, len(body), pendingCount)
-	}
-	return pendingCount
+
+func init() {
+	RootCmd.AddCommand(sendCmd)
 }
 
-func removePending(response *blip.Message) int {
-	mutex.Lock()
-	defer mutex.Unlock()
-	if !pendingResponses[response.SerialNumber()] {
-		panic("Wasn't expecting this response (response not pending)")
-	}
-	delete(pendingResponses, response.SerialNumber())
-	pendingCount--
-	if verbosity > 0 {
-		body, _ := response.Body()
-		log.Printf("<<< Response arrived: %s %#v +%dbytes (%d pending)",
-			response, response.Properties, len(body), pendingCount)
-	}
-	return pendingCount
+var sendCmd = &cobra.Command{
+	Use:   "sender",
+	Short: "Send blip requests",
+	Long:  `Send blip requests`,
+	Run: func(cmd *cobra.Command, args []string) {
+		sender()
+	},
 }
 
-func getPendingCount() int {
-	mutex.Lock()
-	defer mutex.Unlock()
-	return pendingCount
-}
-
-func main() {
+func sender() {
 	maxProcs := runtime.NumCPU()
 	runtime.GOMAXPROCS(maxProcs)
 	log.Printf("Set GOMAXPROCS to %d", maxProcs)
@@ -173,6 +151,43 @@ func awaitResponse(request *blip.Message) {
 		}
 	}
 }
+
+func addPending(request *blip.Message) int {
+	mutex.Lock()
+	defer mutex.Unlock()
+	pendingResponses[request.SerialNumber()] = true
+	pendingCount++
+	sentCount++
+	if verbosity > 0 {
+		body, _ := request.Body()
+		log.Printf(">>> Sending request: %s %#v +%dbytes (%d pending)",
+			request, request.Properties, len(body), pendingCount)
+	}
+	return pendingCount
+}
+
+func removePending(response *blip.Message) int {
+	mutex.Lock()
+	defer mutex.Unlock()
+	if !pendingResponses[response.SerialNumber()] {
+		panic("Wasn't expecting this response (response not pending)")
+	}
+	delete(pendingResponses, response.SerialNumber())
+	pendingCount--
+	if verbosity > 0 {
+		body, _ := response.Body()
+		log.Printf("<<< Response arrived: %s %#v +%dbytes (%d pending)",
+			response, response.Properties, len(body), pendingCount)
+	}
+	return pendingCount
+}
+
+func getPendingCount() int {
+	mutex.Lock()
+	defer mutex.Unlock()
+	return pendingCount
+}
+
 
 //  Copyright (c) 2013 Jens Alfke.
 //  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file
