@@ -16,7 +16,7 @@ func Test_HTTPToBLIPRequest(t *testing.T) {
 	assert.Equals(t, err, nil)
 	req.Header.Add("Content-Type", "text/plain")
 
-	msg := HTTPToBLIPRequest(req)
+	msg := httpToBLIPRequest(req)
 
 	assert.Equals(t, msg.Type(), RequestType)
 	assert.Equals(t, msg.Profile(), "HTTP")
@@ -44,7 +44,7 @@ func Test_BLIPToHTTPRequest(t *testing.T) {
 		"\r\n" +
 		"This is the body"))
 
-	req, err := BLIPToHTTPRequest(msg)
+	req, err := blipToHTTPRequest(msg)
 	assert.Equals(t, err, nil)
 
 	assert.Equals(t, req.Method, "GET")
@@ -63,7 +63,7 @@ func Test_BLIPToHTTPRequest2(t *testing.T) {
 		"\r\n" +
 		"This is the body"))
 
-	req, err := BLIPToHTTPRequest(msg)
+	req, err := blipToHTTPRequest(msg)
 	assert.Equals(t, err, nil)
 
 	assert.Equals(t, req.Method, "GET")
@@ -79,7 +79,7 @@ func Test_ResponseWriter(t *testing.T) {
 	props := Properties{"Content-Type": "text/plain"}
 	msg := NewParsedIncomingMessage(nil, RequestType, props, []byte("Request data"))
 
-	req, _ := BLIPToHTTPRequest(msg)
+	req, _ := blipToHTTPRequest(msg)
 	responseMsg := msg.Response()
 	r := makeResponseWriter(responseMsg, req)
 
