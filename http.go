@@ -86,7 +86,7 @@ func (r *responseWriter) Close() {
 
 // Registers a handler for HTTP requests with a BLIP Context and returns the ServeMux that
 // routes the requests. You should register your HTTP handlers with the ServeMux.
-func addHTTPHandler(context *Context) *http.ServeMux {
+func AddHTTPHandler(context *Context) *http.ServeMux {
 	mux := http.NewServeMux()
 	handler := func(request *Message) {
 		httpReq, _ := blipToHTTPRequest(request) //FIX: Handle error
@@ -126,7 +126,7 @@ type blipTransport struct {
 }
 
 // Creates an HTTP Client that will send its requests over the given BLIP connection.
-func newHTTPClient(sender *Sender) *http.Client {
+func NewHTTPClient(sender *Sender) *http.Client {
 	return &http.Client{Transport: &blipTransport{sender}}
 }
 
