@@ -27,7 +27,7 @@ func TestMessageEncoding(t *testing.T) {
 	err := m.WriteTo(&writer)
 	assert.Equals(t, err, nil)
 	serialized := writer.Bytes()
-	assert.Equals(t, string(serialized), "\x1a\x04\x00ham/rye\x00X-Weather\x00rainy\x00The white knight is sliding down the poker. He balances very badly.")
+	assert.Equals(t, string(serialized), "\x25Content-Type\x00ham/rye\x00X-Weather\x00rainy\x00The white knight is sliding down the poker. He balances very badly.")
 	log.Printf("Encoded as %d bytes", len(serialized))
 
 	m2 := newIncomingMessage(nil, 1, m.flags, nil)

@@ -102,8 +102,9 @@ func (sender *Sender) Close() {
 func (sender *Sender) start() {
 	sender.conn.PayloadType = websocket.BinaryFrame
 	go (func() {
-		sender.context.log("Sender starting...")
-		buffer := bytes.NewBuffer(make([]byte, 0, kBigFrameSize))
+		sender.context.logFrame("Sender starting...")
+		frameBuffer := bytes.NewBuffer(make([]byte, 0, kBigFrameSize))
+		frameEncoder := getCompressor(frameBuffer)
 		for {
 			msg := sender.popNextMessage()
 			if msg == nil {
@@ -122,10 +123,23 @@ func (sender *Sender) start() {
 			var header [2 * binary.MaxVarintLen64]byte
 			i := binary.PutUvarint(header[:], uint64(msg.number))
 			i += binary.PutUvarint(header[i:], uint64(flags))
-			buffer.Write(header[:i])
-			buffer.Write(body)
-			sender.conn.Write(buffer.Bytes())
-			buffer.Reset()
+			frameBuffer.Write(header[:i])
+
+			frameEncoder.enableCompression(msg.Compressed())
+			frameEncoder.write(body)
+			if msg.Compressed() {
+				// Remove the '00 00 FF FF' trailer from the deflated block
+				frameBuffer.Truncate(frameBuffer.Len() - 4)
+			}
+
+			if msgType := msg.Type(); msgType != AckRequestType && msgType != AckResponseType {
+				var checksum [4]byte
+				binary.BigEndian.PutUint32(checksum[:], frameEncoder.getChecksum())
+				frameBuffer.Write(checksum[:])
+			}
+
+			sender.conn.Write(frameBuffer.Bytes())
+			frameBuffer.Reset()
 
 			if (flags & kMoreComing) != 0 {
 				if len(body) == 0 {
@@ -134,7 +148,8 @@ func (sender *Sender) start() {
 				sender.requeue(msg, uint64(len(body)))
 			}
 		}
-		sender.context.log("Sender stopped")
+		returnCompressor(frameEncoder)
+		sender.context.logFrame("Sender stopped")
 	})()
 }
 
@@ -208,7 +223,7 @@ func (sender *Sender) sendAck(msgNo MessageNumber, msgType MessageType, bytesRec
 
 }
 
-//  Copyright (c) 2013 Jens Alfke.
+//  Copyright (c) 2013 Jens Alfke. Copyright (c) 2015-2017 Couchbase, Inc.
 //  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file
 //  except in compliance with the License. You may obtain a copy of the License at
 //    http://www.apache.org/licenses/LICENSE-2.0

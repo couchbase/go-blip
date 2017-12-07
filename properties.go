@@ -14,36 +14,6 @@ type Properties map[string]string
 // For testing purposes, clients can set this to true to write properties sorted by key
 var SortProperties = false
 
-// Property names that are encoded as single bytes (first is Ctrl-A, etc.)
-// CHANGING THIS ARRAY WILL BREAK PROTOCOL COMPATIBILITY!!
-var kSpecialProperties = []string{
-	"Profile",
-	"Error-Code",
-	"Error-Domain",
-
-	"Content-Type",
-	"application/json",
-	"application/octet-stream",
-	"text/plain; charset=UTF-8",
-	"text/xml",
-
-	"Accept",
-	"Cache-Control",
-	"must-revalidate",
-	"If-Match",
-	"If-None-Match",
-	"Location",
-}
-
-var kSpecialPropertyEncoder map[string][]byte
-
-func init() {
-	kSpecialPropertyEncoder = make(map[string][]byte, len(kSpecialProperties))
-	for i, prop := range kSpecialProperties {
-		kSpecialPropertyEncoder[prop] = []byte{byte(i + 1)}
-	}
-}
-
 // Adapter for io.Reader to io.ByteReader
 type byteReader struct {
 	reader io.Reader
@@ -79,8 +49,8 @@ func (properties *Properties) ReadFrom(reader io.Reader) error {
 	}
 	*properties = Properties{}
 	for i := 0; i < len(eachProp); i += 2 {
-		key := decodeProperty(eachProp[i])
-		value := decodeProperty(eachProp[i+1])
+		key := string(eachProp[i])
+		value := string(eachProp[i+1])
 		if _, exists := (*properties)[key]; exists {
 			return fmt.Errorf("Duplicate property name %q", key)
 		}
@@ -96,8 +66,8 @@ func (properties Properties) WriteTo(writer io.Writer) error {
 	i := 0
 	size := 0
 	for key, value := range properties {
-		strings[i] = encodeProperty(key)
-		strings[i+1] = encodeProperty(value)
+		strings[i] = []byte(key)
+		strings[i+1] = []byte(value)
 		size += len(strings[i]) + len(strings[i+1]) + 2
 		i += 2
 	}
@@ -123,24 +93,6 @@ func (properties Properties) WriteTo(writer io.Writer) error {
 	return nil
 }
 
-func encodeProperty(prop string) []byte {
-	if encoded, found := kSpecialPropertyEncoder[prop]; found {
-		return encoded
-	} else {
-		return []byte(prop)
-	}
-}
-
-func decodeProperty(encoded []byte) string {
-	if len(encoded) == 1 {
-		index := int(encoded[0]) - 1
-		if index < len(kSpecialProperties) {
-			return kSpecialProperties[index]
-		}
-	}
-	return string(encoded)
-}
-
 // Properties stored as alternating keys / values
 type propertyList [][]byte
 
@@ -158,7 +110,7 @@ func (pl propertyList) Swap(i, j int) {
 	pl[j+1] = t
 }
 
-//  Copyright (c) 2013 Jens Alfke.
+//  Copyright (c) 2013 Jens Alfke. Copyright (c) 2015-2017 Couchbase, Inc.
 //  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file
 //  except in compliance with the License. You may obtain a copy of the License at
 //    http://www.apache.org/licenses/LICENSE-2.0

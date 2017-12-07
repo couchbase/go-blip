@@ -2,7 +2,6 @@ package blip
 
 import (
 	"bytes"
-	"compress/gzip"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -34,12 +33,16 @@ type Message struct {
 
 // Returns a string describing the message for debugging purposes
 func (message *Message) String() string {
-	msgType := kMessageTypeName[message.Type()]
-	str := fmt.Sprintf("%s#%d", msgType, message.number)
-	if message.flags&kUrgent != 0 {
+	return frameString(message.number, message.flags)
+}
+
+func frameString(number MessageNumber, flags frameFlags) string {
+	msgType := kMessageTypeName[flags&kTypeMask]
+	str := fmt.Sprintf("%s#%d", msgType, number)
+	if flags&kUrgent != 0 {
 		str += "!"
 	}
-	if message.flags&kCompressed != 0 {
+	if flags&kCompressed != 0 {
 		str += "~"
 	}
 	return str
@@ -85,7 +88,9 @@ func (message *Message) SetUrgent(urgent bool) {
 
 // Enables GZIP compression of an outgoing message's body.
 func (message *Message) SetCompressed(compressed bool) {
-	message.setFlag(kCompressed, compressed)
+	if CompressionLevel != 0 {
+		message.setFlag(kCompressed, compressed)
+	}
 }
 
 // Marks an outgoing message as being one-way: no reply will be sent.
@@ -184,7 +189,7 @@ func (m *Message) SetJSONBody(value interface{}) error {
 	if err == nil {
 		m.SetBody(body)
 		m.Properties["Content-Type"] = "application/json"
-		m.SetCompressed(len(body) > 100)
+		m.SetCompressed(true)
 	}
 	return err
 }
@@ -298,13 +303,7 @@ func (m *Message) WriteTo(writer io.Writer) error {
 	}
 	var err error
 	if len(m.body) > 0 {
-		if m.Compressed() {
-			zipper := GetGZipWriter(writer)
-			_, err = zipper.Write(m.body)
-			ReturnGZipWriter(zipper)
-		} else {
-			_, err = writer.Write(m.body)
-		}
+		_, err = writer.Write(m.body)
 	}
 	return err
 }
@@ -312,14 +311,6 @@ func (m *Message) WriteTo(writer io.Writer) error {
 func (m *Message) ReadFrom(reader io.Reader) error {
 	if err := m.Properties.ReadFrom(reader); err != nil {
 		return err
-	}
-	if m.Compressed() {
-		unzipper, err := GetGZipReader(reader)
-		if err != nil {
-			return err
-		}
-		defer ReturnGZipReader(unzipper)
-		reader = unzipper
 	}
 	var err error
 	m.body, err = ioutil.ReadAll(reader)
@@ -367,44 +358,7 @@ func (m *Message) nextFrameToSend(maxSize int) ([]byte, frameFlags) {
 	return frame, flags
 }
 
-//////// GZIP WRITER CACHE:
-
-var gzipWriterCache sync.Pool
-var gzipReaderCache sync.Pool
-
-// Gets a gzip writer from the pool, or creates a new one if the pool is empty:
-func GetGZipWriter(writer io.Writer) *gzip.Writer {
-	if gz, ok := gzipWriterCache.Get().(*gzip.Writer); ok {
-		gz.Reset(writer)
-		return gz
-	} else {
-		return gzip.NewWriter(writer)
-	}
-}
-
-// Closes a gzip writer and returns it to the pool:
-func ReturnGZipWriter(gz *gzip.Writer) {
-	gz.Close()
-	gzipWriterCache.Put(gz)
-}
-
-// Gets a gzip reader from the pool, or creates a new one if the pool is empty:
-func GetGZipReader(reader io.Reader) (*gzip.Reader, error) {
-	if gz, ok := gzipReaderCache.Get().(*gzip.Reader); ok {
-		gz.Reset(reader)
-		return gz, nil
-	} else {
-		return gzip.NewReader(reader)
-	}
-}
-
-// Closes a gzip reader and returns it to the pool:
-func ReturnGZipReader(gz *gzip.Reader) {
-	gz.Close()
-	gzipReaderCache.Put(gz)
-}
-
-//  Copyright (c) 2013 Jens Alfke.
+//  Copyright (c) 2013 Jens Alfke. Copyright (c) 2015-2017 Couchbase, Inc.
 //  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file
 //  except in compliance with the License. You may obtain a copy of the License at
 //    http://www.apache.org/licenses/LICENSE-2.0

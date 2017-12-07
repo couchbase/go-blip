@@ -5,11 +5,10 @@ import (
 	"log"
 	"net/http"
 	"runtime/debug"
+	"strings"
 
 	"golang.org/x/net/websocket"
 )
-
-const blipProtocolName = "BLIP"
 
 // A function that handles an incoming BLIP request and optionally sends a response.
 // A handler is called on a new goroutine so it can take as long as it needs to.
@@ -35,6 +34,8 @@ type Context struct {
 	LogFrames              bool               // If true, will log about frames (very verbose)
 }
 
+//////// SETUP:
+
 // Creates a new Context with an empty dispatch table.
 func NewContext() *Context {
 	return &Context{
@@ -52,7 +53,7 @@ func (context *Context) start(ws *websocket.Conn) *Sender {
 
 // Opens a BLIP connection to a host.
 func (context *Context) Dial(url string, origin string) (*Sender, error) {
-	ws, err := websocket.Dial(url, blipProtocolName, origin)
+	ws, err := websocket.Dial(url, WebSocketProtocolName, origin)
 	if err != nil {
 		return nil, err
 	}
@@ -61,20 +62,26 @@ func (context *Context) Dial(url string, origin string) (*Sender, error) {
 	return sender, nil
 }
 
+type WSHandshake func(*websocket.Config, *http.Request) error
+
 // Creates a WebSocket handshake handler
-func handshake(config *websocket.Config, rq *http.Request) error {
-	ok := false
-	for _, proto := range config.Protocol {
-		if proto == blipProtocolName {
-			ok = true
-			break
+func (context *Context) WebSocketHandshake() WSHandshake {
+	return func(config *websocket.Config, rq *http.Request) error {
+		ok := false
+		protocolHeader := rq.Header.Get("Sec-WS-Protocols")
+		for _, proto := range strings.Split(protocolHeader, ",") {
+			if strings.Trim(proto, " ") == WebSocketProtocolName {
+				ok = true
+				break
+			}
 		}
+		if !ok {
+			context.log("Error: Client doesn't support WS protocol %s, only %s", WebSocketProtocolName, protocolHeader)
+			return &websocket.ProtocolError{"I only speak " + WebSocketProtocolName + " protocol"}
+		}
+		config.Protocol = []string{WebSocketProtocolName}
+		return nil
 	}
-	if !ok {
-		return &websocket.ProtocolError{"I only speak BLIP"}
-	}
-	config.Protocol = []string{blipProtocolName}
-	return nil
 }
 
 // Creates a WebSocket connection handler that dispatches BLIP messages to the Context.
@@ -92,12 +99,14 @@ func (context *Context) WebSocketHandler() websocket.Handler {
 
 // Creates an HTTP handler that accepts WebSocket connections and dispatches BLIP messages
 // to the Context.
-func (context *Context) HTTPHandler() http.Handler {
+func (context *Context) WebSocketServer() *websocket.Server {
 	return &websocket.Server{
+		Handshake: context.WebSocketHandshake(),
 		Handler:   context.WebSocketHandler(),
-		Handshake: handshake,
 	}
 }
+
+//////// DISPATCHING MESSAGES:
 
 func (context *Context) dispatchRequest(request *Message, sender *Sender) {
 	defer func() {
@@ -105,7 +114,7 @@ func (context *Context) dispatchRequest(request *Message, sender *Sender) {
 		response := request.Response()
 		if panicked := recover(); panicked != nil {
 			stack := debug.Stack()
-			log.Printf("*** PANIC handling BLIP request %v: %v:\n%s", request, panicked, stack)
+			context.log("*** PANIC handling BLIP request %v: %v:\n%s", request, panicked, stack)
 			if response != nil {
 				response.SetError(BLIPErrorDomain, 500, fmt.Sprintf("Panic: %v", panicked))
 			}
@@ -131,13 +140,15 @@ func (context *Context) dispatchResponse(response *Message) {
 		// On return/panic, log a warning:
 		if panicked := recover(); panicked != nil {
 			stack := debug.Stack()
-			log.Printf("*** PANIC handling BLIP response %v: %v:\n%s", response, panicked, stack)
+			context.log("*** PANIC handling BLIP response %v: %v:\n%s", response, panicked, stack)
 		}
 	}()
 
 	context.logMessage("INCOMING RESPONSE: %s", response)
 	//panic("UNIMPLEMENTED") //TODO
 }
+
+//////// LOGGING:
 
 func (context *Context) log(fmt string, params ...interface{}) {
 	context.Logger(fmt, params...)
@@ -155,7 +166,7 @@ func (context *Context) logFrame(fmt string, params ...interface{}) {
 	}
 }
 
-//  Copyright (c) 2013 Jens Alfke.
+//  Copyright (c) 2013 Jens Alfke. Copyright (c) 2015-2017 Couchbase, Inc.
 //  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file
 //  except in compliance with the License. You may obtain a copy of the License at
 //    http://www.apache.org/licenses/LICENSE-2.0
