@@ -87,6 +87,6 @@ Sending the request is asynchronous -- the `Send` method returns immediately. On
 As mentioned above, note that both 'server' and 'client' can initiate messages. If the client wants to receive messages (other than replies) from the server, it should register handlers with its context as shown in the previous section.
 
 [GO]: http://golang.org
-[BLIP]: https://bitbucket.org/snej/mynetwork/wiki/BLIP/Overview
-[BLIP_PROTOCOL]: https://github.com/couchbaselabs/BLIP-Cocoa/blob/master/Docs/BLIP%20Protocol.md
+[BLIP]: https://github.com/couchbaselabs/BLIP-Cpp
+[BLIP_PROTOCOL]: https://github.com/couchbaselabs/BLIP-Cpp/blob/master/docs/BLIP%20Protocol.md
 [WEBSOCKET]: http://www.websocket.org
