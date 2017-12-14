@@ -132,7 +132,7 @@ func (sender *Sender) start() {
 				frameBuffer.Truncate(frameBuffer.Len() - 4)
 			}
 
-			if msgType := msg.Type(); msgType != AckRequestType && msgType != AckResponseType {
+			if msgType := msg.Type(); !msgType.isAck() {
 				var checksum [4]byte
 				binary.BigEndian.PutUint32(checksum[:], frameEncoder.getChecksum())
 				frameBuffer.Write(checksum[:])
@@ -187,7 +187,7 @@ func (sender *Sender) requeue(msg *Message, bytesSent uint64) {
 }
 
 func (sender *Sender) receivedAck(requestNumber MessageNumber, msgType MessageType, bytesReceived uint64) {
-	sender.context.logFrame("Received ACK of %s#%d (%d bytes)", kMessageTypeName[msgType], requestNumber, bytesReceived)
+	sender.context.logFrame("Received ACK of %s#%d (%d bytes)", msgType.name(), requestNumber, bytesReceived)
 	sender.requeueLock.Lock()
 	defer sender.requeueLock.Unlock()
 	if msg := sender.queue.find(requestNumber, msgType); msg != nil {
@@ -208,19 +208,13 @@ func (sender *Sender) receivedAck(requestNumber MessageNumber, msgType MessageTy
 }
 
 func (sender *Sender) sendAck(msgNo MessageNumber, msgType MessageType, bytesReceived uint64) {
-	flags := kNoReply | kUrgent
-	sender.context.logFrame("Sending ACK of %s#%d (%d bytes)", kMessageTypeName[msgType], msgNo, bytesReceived)
-	if msgType == RequestType {
-		flags |= frameFlags(AckRequestType)
-	} else {
-		flags |= frameFlags(AckResponseType)
-	}
+	sender.context.logFrame("Sending ACK of %s#%d (%d bytes)", msgType.name(), msgNo, bytesReceived)
+	flags := frameFlags(msgType.ackType()) | kNoReply | kUrgent
 	var buffer [3 * binary.MaxVarintLen64]byte
 	i := binary.PutUvarint(buffer[:], uint64(msgNo))
 	i += binary.PutUvarint(buffer[i:], uint64(flags))
 	i += binary.PutUvarint(buffer[i:], uint64(bytesReceived))
 	sender.conn.Write(buffer[0:i])
-
 }
 
 //  Copyright (c) 2013 Jens Alfke. Copyright (c) 2015-2017 Couchbase, Inc.

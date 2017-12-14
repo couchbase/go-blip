@@ -37,8 +37,7 @@ func (message *Message) String() string {
 }
 
 func frameString(number MessageNumber, flags frameFlags) string {
-	msgType := kMessageTypeName[flags&kTypeMask]
-	str := fmt.Sprintf("%s#%d", msgType, number)
+	str := fmt.Sprintf("%s#%d", flags.messageType().name(), number)
 	if flags&kUrgent != 0 {
 		str += "!"
 	}
@@ -68,7 +67,7 @@ func (message *Message) SerialNumber() MessageNumber {
 }
 
 // The type of message: request, response or error
-func (message *Message) Type() MessageType { return MessageType(message.flags & kTypeMask) }
+func (message *Message) Type() MessageType { return MessageType(message.flags.messageType()) }
 
 // True if the message has Urgent priority.
 func (message *Message) Urgent() bool { return message.flags&kUrgent != 0 }

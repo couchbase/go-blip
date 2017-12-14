@@ -10,6 +10,9 @@ import (
 	"golang.org/x/net/websocket"
 )
 
+const checksumLength = 4
+const deflateTrailer = "\x00\x00\xff\xff"
+
 type msgStreamer struct {
 	message      *Message
 	writer       io.WriteCloser
@@ -70,12 +73,8 @@ func (r *receiver) receiveLoop() error {
 
 func (r *receiver) parseLoop() {
 	r.frameDecoder = getDecompressor(&r.frameBuffer)
-	for {
-		frame := <-r.channel
-		if frame == nil {
-			r.context.logFrame("parseLoop stopped")
-			break
-		} else if err := r.handleIncomingFrame(frame); err != nil {
+	for frame := range r.channel {
+		if err := r.handleIncomingFrame(frame); err != nil {
 			r.context.log("Error: parseLoop exiting with BLIP error: %v", err)
 			r.parseError = err
 			r.conn.Close()
@@ -83,6 +82,7 @@ func (r *receiver) parseLoop() {
 			break
 		}
 	}
+	r.context.logFrame("parseLoop stopped")
 	returnDecompressor(r.frameDecoder)
 	r.frameDecoder = nil
 }
@@ -92,6 +92,7 @@ func (r *receiver) handleIncomingFrame(frame []byte) error {
 	if len(frame) < 2 {
 		return fmt.Errorf("Illegally short frame")
 	}
+	r.frameBuffer.Reset()
 	r.frameBuffer.Write(frame)
 	n, err := binary.ReadUvarint(&r.frameBuffer)
 	if err != nil {
@@ -103,22 +104,23 @@ func (r *receiver) handleIncomingFrame(frame []byte) error {
 		return err
 	}
 	flags := frameFlags(n)
-	msgType := MessageType(flags & kTypeMask)
+	msgType := flags.messageType()
 
 	compressed := false
 	var checksum uint32 = 0
-	isACK := msgType == AckRequestType || msgType == AckResponseType
+	isACK := msgType.isAck()
 	if !isACK {
 		// Read checksum (except for ACK messages which don't have one, nor any compression)
 		bufferedFrame := r.frameBuffer.Bytes()
-		checksumSlice := bufferedFrame[len(bufferedFrame)-4 : len(bufferedFrame)]
+		checksumSlice := bufferedFrame[len(bufferedFrame)-checksumLength : len(bufferedFrame)]
 		checksum = binary.BigEndian.Uint32(checksumSlice)
 		compressed = flags&kCompressed != 0
 		if compressed {
 			// Replace the checksum with the implicit 00 00 FF FF deflate trailer:
-			copy(checksumSlice, "\x00\x00\xff\xff")
+			copy(checksumSlice, deflateTrailer)
 		} else {
-			r.frameBuffer.Truncate(r.frameBuffer.Len() - 4) // Don't let frameDecoder read checksum
+			// Don't let frameDecoder read checksum
+			r.frameBuffer.Truncate(r.frameBuffer.Len() - len(deflateTrailer))
 		}
 	}
 
@@ -137,7 +139,7 @@ func (r *receiver) handleIncomingFrame(frame []byte) error {
 	if isACK {
 		bytesReceived, n := binary.Uvarint(frame)
 		if n > 0 {
-			r.sender.receivedAck(requestNumber, msgType-4, bytesReceived)
+			r.sender.receivedAck(requestNumber, msgType.ackSourceType(), bytesReceived)
 		} else {
 			r.context.log("Error reading ACK frame")
 		}
@@ -153,8 +155,15 @@ func (r *receiver) handleIncomingFrame(frame []byte) error {
 	// Look up or create the writer stream for this message:
 	complete := (flags & kMoreComing) == 0
 	var msgStream *msgStreamer
-	if msgStream, err = r.getMessageStream(requestNumber, flags, frame, complete); err != nil {
-		return err
+	switch flags.messageType() {
+	case RequestType:
+		msgStream, err = r.getPendingRequest(requestNumber, flags, complete)
+	case ResponseType, ErrorType:
+		msgStream, err = r.getPendingResponse(requestNumber, flags, complete)
+	case AckRequestType, AckResponseType:
+		break
+	default:
+		r.context.log("Warning: Ignoring incoming message type, with flags 0x%x", flags)
 	}
 
 	// Write the decoded frame body to the stream:
@@ -162,7 +171,9 @@ func (r *receiver) handleIncomingFrame(frame []byte) error {
 		if frameSize, err := writeFull(frame, msgStream.writer); err != nil {
 			return err
 		} else if complete {
-			msgStream.writer.Close()
+			if err = msgStream.writer.Close(); err != nil {
+				r.context.log("Warning: message writer closed with error %v", err)
+			}
 		} else {
 			//FIX: This isn't the right place to do this, because this goroutine doesn't block even
 			// if the client can't read the message fast enough. The right place to send the ACK is
@@ -177,39 +188,49 @@ func (r *receiver) handleIncomingFrame(frame []byte) error {
 	return nil
 }
 
-func (r *receiver) getMessageStream(requestNumber MessageNumber, flags frameFlags, frame []byte, complete bool) (*msgStreamer, error) {
-	var msgStream *msgStreamer
-	msgType := MessageType(flags & kTypeMask)
-	switch msgType {
-	case RequestType:
-		msgStream = r.pendingRequests[requestNumber]
-		if msgStream != nil {
-			if complete {
-				delete(r.pendingRequests, requestNumber)
-			}
-		} else if requestNumber == r.numRequestsReceived+1 {
-			r.numRequestsReceived++
-			request := newIncomingMessage(r.sender, requestNumber, flags, nil)
-			msgStream = &msgStreamer{
-				message: request,
-				writer: request.asyncRead(func(err error) {
-					r.context.dispatchRequest(request, r.sender)
-				}),
-			}
-			if !complete {
-				r.pendingRequests[requestNumber] = msgStream
-			}
-		} else {
-			return nil, fmt.Errorf("Bad incoming request number %d", requestNumber)
+func (r *receiver) getPendingRequest(requestNumber MessageNumber, flags frameFlags, complete bool) (msgStream *msgStreamer, err error) {
+	r.pendingMutex.Lock()
+	defer r.pendingMutex.Unlock()
+	msgStream = r.pendingRequests[requestNumber]
+	if msgStream != nil {
+		if complete {
+			delete(r.pendingRequests, requestNumber)
 		}
-	case ResponseType, ErrorType:
-		return r.getPendingResponse(requestNumber, flags, complete)
-	case AckRequestType, AckResponseType:
-		break
-	default:
-		r.context.log("Warning: Ignoring incoming message type, with flags 0x%x", flags)
+	} else if requestNumber == r.numRequestsReceived+1 {
+		r.numRequestsReceived++
+		request := newIncomingMessage(r.sender, requestNumber, flags, nil)
+		msgStream = &msgStreamer{
+			message: request,
+			writer: request.asyncRead(func(err error) {
+				r.context.dispatchRequest(request, r.sender)
+			}),
+		}
+		if !complete {
+			r.pendingRequests[requestNumber] = msgStream
+		}
+	} else {
+		return nil, fmt.Errorf("Bad incoming request number %d", requestNumber)
 	}
 	return msgStream, nil
+}
+
+func (r *receiver) getPendingResponse(requestNumber MessageNumber, flags frameFlags, complete bool) (msgStream *msgStreamer, err error) {
+	r.pendingMutex.Lock()
+	defer r.pendingMutex.Unlock()
+	msgStream = r.pendingResponses[requestNumber]
+	if msgStream != nil {
+		if msgStream.bytesWritten == 0 {
+			msgStream.message.flags = flags // set flags based on 1st frame of response
+		}
+		if complete {
+			delete(r.pendingResponses, requestNumber)
+		}
+	} else if requestNumber <= r.maxPendingResponseNumber {
+		r.context.log("Warning: Unexpected response frame to my msg #%d", requestNumber) // benign
+	} else {
+		err = fmt.Errorf("Bogus message number %d in response", requestNumber)
+	}
+	return
 }
 
 // pendingResponses is accessed from both the receiveLoop goroutine and the sender's goroutine,
@@ -225,25 +246,6 @@ func (r *receiver) awaitResponse(request *Message, writer io.WriteCloser) {
 	if number > r.maxPendingResponseNumber {
 		r.maxPendingResponseNumber = number
 	}
-}
-
-func (r *receiver) getPendingResponse(requestNumber MessageNumber, flags frameFlags, remove bool) (msgStream *msgStreamer, err error) {
-	r.pendingMutex.Lock()
-	defer r.pendingMutex.Unlock()
-	msgStream = r.pendingResponses[requestNumber]
-	if msgStream != nil {
-		if msgStream.bytesWritten == 0 {
-			msgStream.message.flags = flags // set flags based on 1st frame of response
-		}
-		if remove {
-			delete(r.pendingResponses, requestNumber)
-		}
-	} else if requestNumber <= r.maxPendingResponseNumber {
-		r.context.log("Warning: Unexpected response frame to my msg #%d", requestNumber) // benign
-	} else {
-		err = fmt.Errorf("Bogus message number %d in response", requestNumber)
-	}
-	return
 }
 
 func (r *receiver) backlog() (pendingRequest, pendingResponses int) {

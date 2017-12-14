@@ -67,15 +67,8 @@ type WSHandshake func(*websocket.Config, *http.Request) error
 // Creates a WebSocket handshake handler
 func (context *Context) WebSocketHandshake() WSHandshake {
 	return func(config *websocket.Config, rq *http.Request) error {
-		ok := false
 		protocolHeader := rq.Header.Get("Sec-WS-Protocols")
-		for _, proto := range strings.Split(protocolHeader, ",") {
-			if strings.Trim(proto, " ") == WebSocketProtocolName {
-				ok = true
-				break
-			}
-		}
-		if !ok {
+		if !includesProtocol(protocolHeader, WebSocketProtocolName) {
 			context.log("Error: Client doesn't support WS protocol %s, only %s", WebSocketProtocolName, protocolHeader)
 			return &websocket.ProtocolError{"I only speak " + WebSocketProtocolName + " protocol"}
 		}
@@ -164,6 +157,15 @@ func (context *Context) logFrame(fmt string, params ...interface{}) {
 	if context.LogFrames {
 		context.Logger(fmt, params...)
 	}
+}
+
+func includesProtocol(header string, protocol string) bool {
+	for _, item := range strings.Split(header, ",") {
+		if strings.TrimSpace(item) == protocol {
+			return true
+		}
+	}
+	return false
 }
 
 //  Copyright (c) 2013 Jens Alfke. Copyright (c) 2015-2017 Couchbase, Inc.

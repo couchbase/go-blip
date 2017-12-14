@@ -4,6 +4,11 @@ package blip
 // Client request must indicate that it supports this protocol, else the handshake will fail.
 const WebSocketProtocolName = "BLIP_3a2"
 
+// Domain used in errors returned by BLIP itself.
+const BLIPErrorDomain = "BLIP"
+
+//////// MESSAGE TYPE:
+
 // Enumeration of the different types of messages in the BLIP protocol.
 type MessageType uint16
 
@@ -17,7 +22,33 @@ const (
 
 var kMessageTypeName = [8]string{"MSG", "RPY", "ERR", "?4?", "ACK_MSG", "ACK_RPY", "?6?", "?7?"}
 
-const BLIPErrorDomain = "BLIP"
+func (t MessageType) name() string {
+	return kMessageTypeName[t]
+}
+
+// Returns true if a type is an Ack
+func (t MessageType) isAck() bool {
+	return t == AckRequestType || t == AckResponseType
+}
+
+// Maps a message type to the type of Ack to use
+func (t MessageType) ackType() MessageType {
+	switch t {
+	case RequestType:
+		return AckRequestType
+	case ResponseType, ErrorType:
+		return AckResponseType
+	default:
+		panic("Ack has no ackType")
+	}
+}
+
+// Maps an Ack type to the message type it refers to
+func (t MessageType) ackSourceType() MessageType {
+	return t - 4
+}
+
+//////// FRAME FLAGS:
 
 type frameFlags uint8
 
@@ -28,6 +59,10 @@ const (
 	kNoReply    = frameFlags(0x20)
 	kMoreComing = frameFlags(0x40)
 )
+
+func (f frameFlags) messageType() MessageType {
+	return MessageType(f & kTypeMask)
+}
 
 //  Copyright (c) 2013 Jens Alfke. Copyright (c) 2015-2017 Couchbase, Inc.
 //  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file
