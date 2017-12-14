@@ -109,23 +109,22 @@ func (d *decompressor) read(dst []byte) (n int, err error) {
 	return n, err
 }
 
+func (d *decompressor) readFull() (n int64, result []byte,  err error) {
+	resultBuffer := bytes.Buffer{}
+
+	if d.enabled {
+		n, err = io.Copy(&resultBuffer, d.z)
+		_ = d.z.Close()
+	} else {
+		n, err = io.Copy(&resultBuffer, d.src)
+		_ = d.z.Close()
+	}
+	result = resultBuffer.Bytes()
+	_, _ = d.checksum.Write(result[0:n]) // Update checksum (no error possible)
+	return n, result, err
+}
+
 func (d *decompressor) readAll() ([]byte, error) {
-	// Decompressing (inflating) all the available input data is made difficult by Go's implemen-
-	// tation, which operates on an input stream. If the Reader ever tries to read past the end of
-	// available input it will get an EOF from the Buffer, which it treats as an error condition,
-	// causing it to drop the input and stop working. So we have to detect when the Reader has
-	// read all of the input and written it to the output, and go no further. The algorithm is
-	// to keep going until the input has been consumed and the output buffer isn't filled.
-	//
-	// Unfortunately this has an edge case where the last read exactly fills the output buffer;
-	// in this case the algorithm says to keep going, but the next read will hit the EOF and
-	// break the decoder.
-	//
-	// The only workaround I've found for this is to make sure that the size of the read buffer
-	// (r.buf) is larger than the maximum amount of data that will be decompressed in one call to
-	// Read, i.e. the maximum size of the decompressed data. In general this is unbounded, but in
-	// practice BLIP frames are no bigger than 16kb, so I've arbitrarily chosen 99999 as a size.
-	// --Jens, 12/2017
 
 	inputLen := d.src.Len()
 	if !d.enabled {
@@ -134,21 +133,38 @@ func (d *decompressor) readAll() ([]byte, error) {
 		return all[:n], err
 	}
 	d.outputBuf.Reset()
-	for {
-		n, err := d.read(d.buffer[:])
-		if err != nil {
-			return nil, err
-		} else if n == 0 {
-			break
-		}
-		if _, err = d.outputBuf.Write(d.buffer[:n]); err != nil {
-			return nil, err
-		}
-		// Keep going as long as we get a full buffer of output, or there's input left to decompress
-		if n < len(d.buffer) && d.src.Len() == 0 {
-			break
-		}
+
+	// sketch
+	_, readFullResult, err := d.readFull()  // only works if exact size.  if smaller, miss data.  bigger, hit EOF
+	if err != nil {
+		return nil, err
 	}
+
+	if _, err = d.outputBuf.Write(readFullResult); err != nil {
+		return nil, err
+	}
+
+	//
+
+	//for {
+	//
+	//
+	//	n, err := d.read(d.buffer[:])
+	//	log.Printf("d.read() returned %d bytes with err: %v", n, err)
+	//	if err != nil {
+	//		return nil, err
+	//	} else if n == 0 {
+	//		break
+	//	}
+	//	if _, err = d.outputBuf.Write(d.buffer[:n]); err != nil {
+	//		return nil, err
+	//	}
+	//	// Keep going as long as we get a full buffer of output, or there's input left to decompress
+	//	if n < len(d.buffer) && d.src.Len() == 0 {
+	//		break
+	//	}
+	//}
+
 	result := d.outputBuf.Bytes()
 	d.outputBuf.Reset()
 	return result, nil
