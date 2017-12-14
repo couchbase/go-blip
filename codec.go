@@ -50,7 +50,10 @@ func (c *compressor) enableCompression(enable bool) {
 func (c *compressor) write(data []byte) (n int, err error) {
 	if c.enabled {
 		n, err = c.z.Write(data)
-		c.z.Flush()
+		errFlush := c.z.Flush()
+		if errFlush != nil {
+			return 0, errFlush
+		}
 	} else {
 		n, err = c.dst.Write(data)
 	}
