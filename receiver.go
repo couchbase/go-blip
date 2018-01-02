@@ -11,6 +11,7 @@ import (
 )
 
 const checksumLength = 4
+const deflateTrailerLength = 4
 const deflateTrailer = "\x00\x00\xff\xff"
 
 type msgStreamer struct {
@@ -120,7 +121,7 @@ func (r *receiver) handleIncomingFrame(frame []byte) error {
 			copy(checksumSlice, deflateTrailer)
 		} else {
 			// Don't let frameDecoder read checksum
-			r.frameBuffer.Truncate(r.frameBuffer.Len() - len(deflateTrailer))
+			r.frameBuffer.Truncate(r.frameBuffer.Len() - checksumLength)
 		}
 	}
 

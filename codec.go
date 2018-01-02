@@ -66,7 +66,7 @@ func (c *compressor) getChecksum() uint32 {
 
 // Should be larger than the max output z.Read() can return at a time
 // (see comment in readAll)
-const kDecompressorBufferSize = 99999
+const kDecompressorBufferSize = 32*1024 + 1
 
 // A 'deflate' decompression context for BLIP messages.
 type decompressor struct {

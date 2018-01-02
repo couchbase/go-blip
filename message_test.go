@@ -3,7 +3,6 @@ package blip
 import (
 	"bytes"
 	"io"
-	"log"
 	"testing"
 
 	"github.com/couchbaselabs/go.assert"
@@ -28,7 +27,7 @@ func TestMessageEncoding(t *testing.T) {
 	assert.Equals(t, err, nil)
 	serialized := writer.Bytes()
 	assert.Equals(t, string(serialized), "\x25Content-Type\x00ham/rye\x00X-Weather\x00rainy\x00The white knight is sliding down the poker. He balances very badly.")
-	log.Printf("Encoded as %d bytes", len(serialized))
+	t.Logf("Encoded as %d bytes", len(serialized))
 
 	m2 := newIncomingMessage(nil, 1, m.flags, nil)
 	reader := bytes.NewReader(serialized)
