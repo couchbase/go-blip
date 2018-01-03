@@ -1,4 +1,4 @@
-# BLIP-Over-WebSocket Implementation for Go
+# BLIP Implementation for Go
 
 This is a [Go][GO] language [golang] implementation of the [BLIP][BLIP] messaging protocol running over [WebSockets][WEBSOCKET].
 
@@ -13,19 +13,11 @@ BLIP adds several useful features that aren't supported directly by WebSocket:
 
 ## Status
 
-The code has been tested and is working well in a branch of the Couchbase Sync Gateway, but it's not being used in the master branch yet. --Jens 8/2015
+This package is used in the implementation of database replication in Couchbase Sync Gateway 2.0+.
 
 ## Protocol
 
 Here's the [protocol documentation][BLIP_PROTOCOL].
-
-## HTTP Over BLIP (Over WebSocket)
-
-This repo includes some experimental support for layering HTTP over BLIP — that is, wrapping an HTTP request in a BLIP request, and its response in the BLIP response. The protocol is very simple: the body of the request and the response is simply the regular HTTP wire protocol. The BLIP properties are unused, although I've been setting the Profile property to "HTTP" to make the messages easy to recognize.
-
-It may seem weird to layer HTTP over a protocol that's tunneling through HTTP in the first place, but this allows for an arbitrary number of simultaneous HTTP requests without having to worry about exceeding a limited socket pool. It also allows for server-initiated requests, which are good for "push" APIs.
-
-(This may likely be obsoleted by HTTP 2, which has basically the same benefits.)
 
 ## Go API
 

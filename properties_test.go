@@ -17,7 +17,7 @@ func TestReadWriteProperties(t *testing.T) {
 	err := p.WriteTo(&writer)
 	assert.Equals(t, err, nil)
 	serialized := writer.Bytes()
-	assert.Equals(t, string(serialized), "\x0C\x04\x00\x06\x00Foo\x00Bar\x00")
+	assert.Equals(t, string(serialized), "\x2EContent-Type\x00application/octet-stream\x00Foo\x00Bar\x00")
 
 	var p2 Properties
 	reader := bytes.NewReader(serialized)
@@ -46,9 +46,9 @@ func TestReadBadProperties(t *testing.T) {
 		{"", "EOF"},
 		{"\x00", ""},
 		{"\x0C", "EOF"},
-		{"\x0C\x01\x00\x03\x00Foo\x00Ba", "unexpected EOF"},
-		{"\x0C\x01\x00\x03\x00Foo\x00Bar\x00", ""},
-		{"\x14\x01\x00\x03\x00Foo\x00Bar\x00Foo\x00Zog\x00", "Duplicate property name \"Foo\""},
+		{"\x0CX\x00Y\x00Foo\x00Ba", "unexpected EOF"},
+		{"\x0CX\x00Y\x00Foo\x00Bar\x00", ""},
+		{"\x14X\x00Y\x00Foo\x00Bar\x00Foo\x00Zog\x00", "Duplicate property name \"Foo\""},
 
 		{"\x02hi", "Invalid properties (not NUL-terminated)"},
 		{"\x02h\x00", "Odd number of strings in properties"},
