@@ -11,7 +11,6 @@ import (
 )
 
 const checksumLength = 4
-const deflateTrailerLength = 4
 const deflateTrailer = "\x00\x00\xff\xff"
 
 type msgStreamer struct {
