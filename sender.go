@@ -38,7 +38,7 @@ func newSender(context *Context, conn *websocket.Conn, receiver *receiver) *Send
 		context:  context,
 		conn:     conn,
 		receiver: receiver,
-		queue:    newMessageQueue(context),
+		queue:    newMessageQueue(context, context.MaxSendQueueCount),
 		icebox:   map[msgKey]*Message{},
 	}
 }
