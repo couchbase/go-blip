@@ -143,6 +143,12 @@ func (q *messageQueue) nextMessageIsUrgent() bool {
 	return len(q.queue) > 0 && q.queue[0].Urgent()
 }
 
+func (q *messageQueue) length() int {
+	q.cond.L.Lock()
+	defer q.cond.L.Unlock()
+	return len(q.queue)
+}
+
 // Returns statistics about the number of incoming and outgoing messages queued.
 func (q *messageQueue) backlog() (outgoingRequests, outgoingResponses int) {
 	q.cond.L.Lock()
