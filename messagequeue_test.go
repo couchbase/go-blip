@@ -1,12 +1,12 @@
 package blip
 
 import (
+	"bytes"
 	"log"
+	"sync"
 	"testing"
 
 	"github.com/couchbaselabs/go.assert"
-	"sync"
-	"bytes"
 )
 
 func TestMessagePushPop(t *testing.T) {
@@ -56,7 +56,6 @@ func TestMessagePushPop(t *testing.T) {
 
 	// Assert that it's empty at this point
 	assert.True(t, mq.length() == 0)
-
 
 }
 
@@ -133,7 +132,7 @@ func TestConcurrentAccess(t *testing.T) {
 // T6: [n5] [n4] [n3] [n2] [u6]
 // T7: See comments below, there is a delta between expected and actual
 
-func TestUrgentMessageOrdering(t *testing.T) {  // Test passes, but some assertions commented
+func TestUrgentMessageOrdering(t *testing.T) { // Test passes, but some assertions commented
 
 	// Create a message queue
 	maxSendQueueCount := 25
@@ -221,10 +220,7 @@ func TestUrgentMessageOrdering(t *testing.T) {  // Test passes, but some asserti
 	// Now the queue should be empty
 	assert.True(t, mq.length() == 0)
 
-
 }
-
-
 
 type TestLogContext struct{}
 
