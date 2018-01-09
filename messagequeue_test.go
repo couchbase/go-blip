@@ -130,7 +130,7 @@ func TestConcurrentAccess(t *testing.T) {
 // T5: [n5] [n4] [n3] [n2] [n1]
 // T5: [n5] [n4] [n3] [n2] [u6] [n1]
 // T6: [n5] [n4] [n3] [n2] [u6]
-// T7: See comments below, there is a delta between expected and actual
+// T7: [n5] [n4] [n3] [u7] [n2] [u6]
 
 func TestUrgentMessageOrdering(t *testing.T) { // Test passes, but some assertions commented
 
@@ -188,26 +188,14 @@ func TestUrgentMessageOrdering(t *testing.T) { // Test passes, but some assertio
 	assert.True(t, headOfLine.Urgent())
 	assert.True(t, headOfLine.SerialNumber() == urgentMsg.SerialNumber())
 
-	// The rest of the assertions don't work
-	// Expected T7: [n5] [n4] [n3] [u7] [n2] [u6]
-	// Actual T7: [n5] [n4] [n3] [n2] [u7] [u6]
-	//
-	// The expected T7 is based on the statement "If there are one or more normal messages after that one,
-	// the message is inserted after the first normal message (this prevents normal messages from being
-	// starved and never reaching the head of the queue.)".  Is it behaving as expected, or am I confused
-	// about the statement?  (actually, the statement might be more clear if "that one" was replaced by
-	// more descriptive wording)
-
 	// Followed by a normal message, since the second urgent message should have been placed _after_ a normal message
 	headOfLine = mq.pop()
-	// TODO: assertion fails due to reasons above
-	// assert.False(t, headOfLine.Urgent())
+	assert.False(t, headOfLine.Urgent())
 
 	// Followed by the less urgent message
 	headOfLine = mq.pop()
-	// TODO: assertion fails due to reasons above
-	// assert.True(t, headOfLine.Urgent())
-	// assert.True(t, headOfLine.SerialNumber() == anotherUrgentMsg.SerialNumber())
+	assert.True(t, headOfLine.Urgent())
+	assert.True(t, headOfLine.SerialNumber() == anotherUrgentMsg.SerialNumber())
 
 	// Followed by 3 normal messages
 	headOfLine = mq.pop()
@@ -219,7 +207,6 @@ func TestUrgentMessageOrdering(t *testing.T) { // Test passes, but some assertio
 
 	// Now the queue should be empty
 	assert.True(t, mq.length() == 0)
-
 }
 
 type TestLogContext struct{}

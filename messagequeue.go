@@ -39,7 +39,7 @@ func (q *messageQueue) _push(msg *Message, new bool) bool { // requires lock
 	if msg.Urgent() && n > 1 {
 		// High-priority gets queued after the last existing high-priority message,
 		// leaving one regular-priority message in between if possible.
-		for index = n - 1; index > 0; index-- {
+		for index = n - 1; index >= 0; index-- {
 			if q.queue[index].Urgent() {
 				index += 2
 				break
@@ -49,7 +49,7 @@ func (q *messageQueue) _push(msg *Message, new bool) bool { // requires lock
 				break
 			}
 		}
-		if index == 0 {
+		if index <= 0 {
 			index = 1
 		} else if index > n {
 			index = n
