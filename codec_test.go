@@ -28,6 +28,42 @@ func init() {
 	}
 }
 
+func TestCompressDecompress(t *testing.T) {
+	testCompressDecompress(t, []byte("hello"))
+}
+
+func TestCompressDecompressManySizes(t *testing.T) {
+	for size := 0; size <= 65535; size += 1 {
+		t.Run(fmt.Sprintf("%d", size), func(t *testing.T) {
+			t.Parallel()
+			testCompressDecompress(t, compressibleDataOfLength(size))
+		})
+	}
+}
+
+// Make sure that the decompressor returns an error with completely invalid input
+func TestDecompressInvalidInput(t *testing.T) {
+
+	decompressor := getDecompressor()
+	decompressedBytes, err := decompressor.decompress([]byte("junk_input"), 2)
+	assert.True(t, err != nil)
+	assert.True(t, len(decompressedBytes) == 0)
+
+}
+
+// Make sure that the decompressor returns an error with valid compressed input, but an invalid checksum
+func TestDecompressInvalidChecksum(t *testing.T) {
+
+	// Compress some data
+	compressedData, checksum := testCompressData(t, []byte("uncompressed"))
+
+	decompressor := getDecompressor()
+	decompressedBytes, err := decompressor.decompress([]byte(compressedData), checksum * 2)
+	assert.True(t, err != nil)
+	assert.True(t, len(decompressedBytes) == 0)
+
+}
+
 func testCompressData(t *testing.T, dataToCompress []byte) (compressedData []byte, checksum uint32) {
 
 	// Compress some data
@@ -64,40 +100,4 @@ func testCompressDecompress(t *testing.T, dataToCompress []byte) {
 
 func compressibleDataOfLength(lengthToCompress int) []byte {
 	return randomData[0:lengthToCompress]
-}
-
-func TestCompressDecompress(t *testing.T) {
-	testCompressDecompress(t, []byte("hello"))
-}
-
-func TestCompressDecompressManySizes(t *testing.T) {
-	for size := 0; size <= 65535; size += 1 {
-		t.Run(fmt.Sprintf("%d", size), func(t *testing.T) {
-			t.Parallel()
-			testCompressDecompress(t, compressibleDataOfLength(size))
-		})
-	}
-}
-
-// Make sure that the decompressor returns an error with completely invalid input
-func TestDecompressInvalidInput(t *testing.T) {
-
-	decompressor := getDecompressor()
-	decompressedBytes, err := decompressor.decompress([]byte("junk_input"), 2)
-	assert.True(t, err != nil)
-	assert.True(t, len(decompressedBytes) == 0)
-
-}
-
-// Make sure that the decompressor returns an error with valid compressed input, but an invalid checksum
-func TestDecompressInvalidChecksum(t *testing.T) {
-
-	// Compress some data
-	compressedData, checksum := testCompressData(t, []byte("uncompressed"))
-
-	decompressor := getDecompressor()
-	decompressedBytes, err := decompressor.decompress([]byte(compressedData), checksum * 2)
-	assert.True(t, err != nil)
-	assert.True(t, len(decompressedBytes) == 0)
-
 }
