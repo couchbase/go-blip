@@ -11,8 +11,6 @@ import (
 )
 
 const checksumLength = 4
-const deflateTrailerLength = 4
-const deflateTrailer = "\x00\x00\xff\xff"
 
 type msgStreamer struct {
 	message      *Message
@@ -117,14 +115,8 @@ func (r *receiver) handleIncomingFrame(frame []byte) error {
 		checksumSlice := bufferedFrame[len(bufferedFrame)-checksumLength : len(bufferedFrame)]
 		ck := binary.BigEndian.Uint32(checksumSlice)
 		checksum = &ck
+		r.frameBuffer.Truncate(r.frameBuffer.Len() - checksumLength)
 		compressed = flags&kCompressed != 0
-		if compressed {
-			// Replace the checksum with the implicit 00 00 FF FF deflate trailer:
-			copy(checksumSlice, deflateTrailer)
-		} else {
-			// Remove the checksum from the decoder input
-			r.frameBuffer.Truncate(r.frameBuffer.Len() - checksumLength)
-		}
 	}
 
 	if r.context.LogFrames {
@@ -134,9 +126,14 @@ func (r *receiver) handleIncomingFrame(frame []byte) error {
 
 	// Read/decompress the body of the frame:
 	rawFrame := frame
-	frame, err = r.frameDecoder.decompress(r.frameBuffer.Bytes(), compressed, checksum)
+	if compressed {
+		frame, err = r.frameDecoder.decompress(r.frameBuffer.Bytes(), *checksum)
+	} else {
+		frame, err = r.frameDecoder.passthrough(r.frameBuffer.Bytes(), checksum)
+	}
 	if err != nil {
-		r.context.log("Error decompressing frame %s: %v %x", frameString(requestNumber, flags), err, rawFrame)
+		r.context.log("Error decompressing frame %s: %v. Raw frame = <%x>",
+			frameString(requestNumber, flags), err, rawFrame)
 		return err
 	}
 
