@@ -7,6 +7,7 @@ import (
 	"hash"
 	"hash/crc32"
 	"io"
+	"log"
 	"sync"
 )
 
@@ -39,6 +40,7 @@ func newCompressor(writer io.Writer) *compressor {
 
 func (c *compressor) reset(writer io.Writer) {
 	c.checksum = crc32.NewIEEE()
+	c.dst = writer
 	c.z.Reset(writer)
 	c.enabled = true
 }
@@ -66,41 +68,35 @@ func (c *compressor) getChecksum() uint32 {
 
 // Should be larger than the max output z.Read() can return at a time
 // (see comment in readAll)
-const kDecompressorBufferSize = 32*1024 + 1
+const kDecompressorBufferSize = 8 * 1024
 
 // A 'deflate' decompression context for BLIP messages.
 type decompressor struct {
 	checksum  hash.Hash32   // Running checksum of pre-compressed data
 	src       *bytes.Buffer // The stream compressed input is read from
 	z         io.ReadCloser // The 'deflate' decompression context
-	enabled   bool          // Should data be decompressed?
 	buffer    []byte        // Temporary buffer for decompressed data
 	outputBuf bytes.Buffer  // Temporary buffer used by ReadAll
 }
 
-func newDecompressor(reader *bytes.Buffer) *decompressor {
+func newDecompressor() *decompressor {
+	buffer := bytes.NewBuffer(make([]byte, 0, kBigFrameSize))
 	return &decompressor{
 		checksum: crc32.NewIEEE(),
-		src:      reader,
-		z:        flate.NewReader(reader),
+		src:      buffer,
+		z:        flate.NewReader(buffer),
 		buffer:   make([]byte, kDecompressorBufferSize),
-		enabled:  true,
 	}
 }
 
-func (d *decompressor) reset(reader *bytes.Buffer) {
+func (d *decompressor) reset() {
 	d.checksum = crc32.NewIEEE()
-	d.src = reader
-	d.z.(flate.Resetter).Reset(reader, nil)
-	d.enabled = true
+	d.src.Reset()
+	d.z.(flate.Resetter).Reset(d.src, nil)
 }
 
-func (d *decompressor) enableCompression(enable bool) {
-	d.enabled = enable
-}
-
-func (d *decompressor) read(dst []byte) (n int, err error) {
-	if d.enabled {
+func (d *decompressor) read(dst []byte, compressed bool) (n int, err error) {
+	if compressed {
 		n, err = d.z.Read(dst)
 	} else {
 		n, err = d.src.Read(dst)
@@ -109,7 +105,7 @@ func (d *decompressor) read(dst []byte) (n int, err error) {
 	return n, err
 }
 
-func (d *decompressor) readAll() ([]byte, error) {
+func (d *decompressor) decompress(input []byte, compressed bool, checksum *uint32) ([]byte, error) {
 	// Decompressing (inflating) all the available input data is made difficult by Go's implemen-
 	// tation, which operates on an input stream. If the Reader ever tries to read past the end of
 	// available input it will get an EOF from the Buffer, which it treats as an error condition,
@@ -127,28 +123,57 @@ func (d *decompressor) readAll() ([]byte, error) {
 	// practice BLIP frames are no bigger than 16kb, so I've arbitrarily chosen 99999 as a size.
 	// --Jens, 12/2017
 
+	d.src.Write(input)
+
 	inputLen := d.src.Len()
-	if !d.enabled {
+	if !compressed {
+		// Non-decompressed mode is easy:
 		all := make([]byte, inputLen)
-		n, err := d.read(all)
-		return all[:n], err
-	}
-	d.outputBuf.Reset()
-	for {
-		n, err := d.read(d.buffer[:])
+		n, err := d.read(all, compressed)
 		if err != nil {
 			return nil, err
-		} else if n == 0 {
-			break
 		}
+		if checksum != nil {
+			if curChecksum := d.getChecksum(); curChecksum != *checksum {
+				return nil, fmt.Errorf("Invalid checksum %x; should be %x", curChecksum, *checksum)
+			}
+		}
+		return all[:n], nil
+	}
+
+	if checksum == nil {
+		panic("missing checksum")
+	}
+
+	if bytes.Compare(d.src.Bytes(), []byte(deflateTrailer)) == 0 {
+		// No data (just a trailer)
+		d.src.Truncate(0)
+		return []byte{}, nil
+	}
+
+	d.outputBuf.Reset()
+	for {
+		n, err := d.read(d.buffer[:], compressed)
+		if err != nil {
+			log.Printf("***Decompressor error; inputLen=%d, remaining=%d, output=%d, error=%v ***\n",
+				inputLen, d.src.Len(), d.outputBuf.Len(), err)
+			return nil, err
+		} else if n == 0 {
+			// Nothing more to read; since checksum didn't match on previous loop, fail:
+			return nil, fmt.Errorf("Invalid checksum %x; should be %x", d.getChecksum(), *checksum)
+		}
+		//log.Printf("***Decompressed %d bytes; %d remaining", n, d.src.Len())
 		if _, err = d.outputBuf.Write(d.buffer[:n]); err != nil {
 			return nil, err
 		}
-		// Keep going as long as we get a full buffer of output, or there's input left to decompress
-		if n < len(d.buffer) && d.src.Len() == 0 {
-			break
+		// Stop if the checksum matches and there are only a few bytes of input left.
+		if remaining := d.src.Len(); remaining <= deflateTrailerLength+1 {
+			if curChecksum := d.getChecksum(); curChecksum == *checksum {
+				break // Checksum matches: done!
+			}
 		}
 	}
+
 	result := d.outputBuf.Bytes()
 	d.outputBuf.Reset()
 	return result, nil
@@ -180,12 +205,12 @@ func returnCompressor(c *compressor) {
 }
 
 // Gets a decompressor from the pool, or creates a new one if the pool is empty:
-func getDecompressor(reader *bytes.Buffer) *decompressor {
+func getDecompressor() *decompressor {
 	if d, ok := decompressorCache.Get().(*decompressor); ok {
-		d.reset(reader)
+		d.reset()
 		return d
 	} else {
-		return newDecompressor(reader)
+		return newDecompressor()
 	}
 }
 

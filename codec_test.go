@@ -11,30 +11,29 @@ import (
 func testCompressDecompress(t *testing.T, dataToCompress []byte) {
 	// Compress some data
 	compressedDest := bytes.Buffer{}
-	compressor := newCompressor(&compressedDest)
+	compressor := getCompressor(&compressedDest)
 	compressor.enabled = true
 	n, err := compressor.write([]byte(dataToCompress))
 	assert.Equals(t, n, len(dataToCompress))
 	assert.True(t, err == nil)
+	compressedData := compressedDest.Bytes()
+	checksum := compressor.getChecksum()
+	returnCompressor(compressor)
 
 	// Decompress it
-	decompressor := newDecompressor(&compressedDest)
-	decompressor.enableCompression(true)
-	decompressedBytes, err := decompressor.readAll()
+	decompressor := getDecompressor()
+	decompressedBytes, err := decompressor.decompress(compressedData, true, &checksum)
+	returnDecompressor(decompressor)
+	assert.True(t, err == nil)
 
 	// Make sure that it decompresses to the same data
-	assert.True(t, err == nil)
-	assert.Equals(t, len(decompressedBytes), len(dataToCompress))
-	for i, decompressedByte := range decompressedBytes {
-		originalDataByte := dataToCompress[i]
-		assert.Equals(t, decompressedByte, originalDataByte)
-	}
+	assert.Equals(t, bytes.Compare(decompressedBytes, dataToCompress), 0)
 }
 
 func superCompressibleDataOfLength(lengthToCompress int) []byte {
 	dataToCompress := make([]byte, lengthToCompress)
 	for i, _ := range dataToCompress {
-		dataToCompress[i] = byte(i)
+		dataToCompress[i] = byte(i & 0xFF)
 	}
 	return dataToCompress
 }
@@ -44,10 +43,7 @@ func TestCompressDecompress(t *testing.T) {
 }
 
 func TestCompressDecompressManySizes(t *testing.T) {
-	for size := 32700; size <= 32999; size += 1 {
-		if size == 32768 {
-			continue // this is the one size that doesn't work
-		}
+	for size := 1; size <= 65535; size += 1 {
 		t.Run(fmt.Sprintf("%d", size), func(t *testing.T) {
 			testCompressDecompress(t, superCompressibleDataOfLength(size))
 		})
