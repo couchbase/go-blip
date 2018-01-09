@@ -127,10 +127,6 @@ func (sender *Sender) start() {
 
 			frameEncoder.enableCompression(msg.Compressed())
 			frameEncoder.write(body)
-			if msg.Compressed() {
-				// Remove the '00 00 FF FF' trailer from the deflated block
-				frameBuffer.Truncate(frameBuffer.Len() - 4)
-			}
 
 			if msgType := msg.Type(); !msgType.isAck() {
 				var checksum [4]byte
