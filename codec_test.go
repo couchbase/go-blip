@@ -2,7 +2,6 @@ package blip
 
 import (
 	"bytes"
-	"fmt"
 	"math/rand"
 	"testing"
 
@@ -10,10 +9,11 @@ import (
 )
 
 var randomData []byte
+var rando *rand.Rand
 
 func init() {
 	CompressionLevel = 4
-	rando := rand.New(rand.NewSource(57439))
+	rando = rand.New(rand.NewSource(57439))
 
 	randomData = make([]byte, 65536)
 	var b byte
@@ -33,12 +33,23 @@ func TestCompressDecompress(t *testing.T) {
 }
 
 func TestCompressDecompressManySizes(t *testing.T) {
-	for size := 0; size <= 65535; size += 1 {
-		t.Run(fmt.Sprintf("%d", size), func(t *testing.T) {
-			t.Parallel()
-			testCompressDecompress(t, compressibleDataOfLength(size))
-		})
+
+	// Pick two boundary value sizes to test with
+	sizesToTest := []int{1, 65535}
+
+	// And 1000 random sizes to test with
+	for i := 0; i < 1000; i++ {
+		randomSize := rando.Intn(65535)
+		if randomSize > 1 {
+			sizesToTest = append(sizesToTest, randomSize)
+		}
 	}
+
+	// Test compress/decompress loop with all of those sizes
+	for _, sizeToTest := range sizesToTest {
+		testCompressDecompress(t, compressibleDataOfLength(sizeToTest))
+	}
+
 }
 
 // Make sure that the decompressor returns an error with completely invalid input
@@ -58,7 +69,7 @@ func TestDecompressInvalidChecksum(t *testing.T) {
 	compressedData, checksum := testCompressData(t, []byte("uncompressed"))
 
 	decompressor := getDecompressor()
-	decompressedBytes, err := decompressor.decompress([]byte(compressedData), checksum * 2)
+	decompressedBytes, err := decompressor.decompress([]byte(compressedData), checksum*2)
 	assert.True(t, err != nil)
 	assert.True(t, len(decompressedBytes) == 0)
 
@@ -92,7 +103,9 @@ func testCompressDecompress(t *testing.T, dataToCompress []byte) {
 	decompressor := getDecompressor()
 	decompressedBytes, err := decompressor.decompress(compressedData, checksum)
 	returnDecompressor(decompressor)
-	assert.True(t, err == nil)
+	if err != nil {
+		t.Errorf("Compression error trying to compress %s of size: %d.  Error: %v", string(dataToCompress), len(dataToCompress), err)
+	}
 
 	// Make sure that it decompresses to the same data
 	assert.Equals(t, bytes.Compare(decompressedBytes, dataToCompress), 0)
