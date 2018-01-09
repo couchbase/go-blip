@@ -34,6 +34,14 @@ type Context struct {
 	LogFrames              bool               // If true, will log about frames (very verbose)
 }
 
+// Defines a logging interface for use within the blip codebase.  Implemented by Context.
+// Any code that needs to take a Context just for logging purposes should take a Logger instead.
+type LogContext interface {
+	log(fmt string, params ...interface{})
+	logMessage(fmt string, params ...interface{})
+	logFrame(fmt string, params ...interface{})
+}
+
 //////// SETUP:
 
 // Creates a new Context with an empty dispatch table.

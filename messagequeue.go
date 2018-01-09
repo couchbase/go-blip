@@ -8,19 +8,19 @@ const kInitialQueueCapacity = 10
 
 // A queue of outgoing messages. Used by Sender to schedule which frames to send.
 type messageQueue struct {
-	context         *Context
+	logContext      LogContext
 	maxCount        int
 	queue           []*Message
 	numRequestsSent MessageNumber
 	cond            *sync.Cond
 }
 
-func newMessageQueue(context *Context) *messageQueue {
+func newMessageQueue(logContext LogContext, maxCount int) *messageQueue {
 	return &messageQueue{
-		context:  context,
-		queue:    make([]*Message, 0, kInitialQueueCapacity),
-		cond:     sync.NewCond(&sync.Mutex{}),
-		maxCount: context.MaxSendQueueCount,
+		logContext: logContext,
+		queue:      make([]*Message, 0, kInitialQueueCapacity),
+		cond:       sync.NewCond(&sync.Mutex{}),
+		maxCount:   maxCount,
 	}
 }
 
@@ -32,14 +32,14 @@ func (q *messageQueue) _push(msg *Message, new bool) bool { // requires lock
 	if q.queue == nil {
 		return false
 	}
-	q.context.logFrame("Push %v", msg)
+	q.logContext.logFrame("Push %v", msg)
 
 	index := 0
 	n := len(q.queue)
 	if msg.Urgent() && n > 1 {
 		// High-priority gets queued after the last existing high-priority message,
 		// leaving one regular-priority message in between if possible.
-		for index = n - 1; index > 0; index-- {
+		for index = n - 1; index >= 0; index-- {
 			if q.queue[index].Urgent() {
 				index += 2
 				break
@@ -49,7 +49,7 @@ func (q *messageQueue) _push(msg *Message, new bool) bool { // requires lock
 				break
 			}
 		}
-		if index == 0 {
+		if index <= 0 {
 			index = 1
 		} else if index > n {
 			index = n
@@ -86,7 +86,7 @@ func (q *messageQueue) push(msg *Message) bool {
 		}
 		q.numRequestsSent++
 		msg.number = q.numRequestsSent
-		q.context.logMessage("Queued %s", msg)
+		q.logContext.logMessage("Queued %s", msg)
 	}
 
 	return q._push(msg, isNew)
@@ -114,9 +114,8 @@ func (q *messageQueue) _maybePop(actuallyPop bool) *Message {
 	return msg
 }
 
-func (q *messageQueue) first() *Message {return q._maybePop(false)}
-func (q *messageQueue) pop() *Message {return q._maybePop(true)}
-
+func (q *messageQueue) first() *Message { return q._maybePop(false) }
+func (q *messageQueue) pop() *Message   { return q._maybePop(true) }
 
 func (q *messageQueue) find(msgNo MessageNumber, msgType MessageType) *Message {
 	q.cond.L.Lock()
@@ -142,6 +141,12 @@ func (q *messageQueue) nextMessageIsUrgent() bool {
 	q.cond.L.Lock()
 	defer q.cond.L.Unlock()
 	return len(q.queue) > 0 && q.queue[0].Urgent()
+}
+
+func (q *messageQueue) length() int {
+	q.cond.L.Lock()
+	defer q.cond.L.Unlock()
+	return len(q.queue)
 }
 
 // Returns statistics about the number of incoming and outgoing messages queued.
