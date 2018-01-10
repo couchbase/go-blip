@@ -13,7 +13,7 @@ func TestMessagePushPop(t *testing.T) {
 
 	// Create a message queue
 	maxSendQueueCount := 5
-	mq := newMessageQueue(TestLogContext{}, maxSendQueueCount)
+	mq := newMessageQueue(&TestLogContext{silent: true}, maxSendQueueCount)
 
 	// Push a non-urgent message into the queue
 	for i := 0; i < 2; i++ {
@@ -63,7 +63,7 @@ func TestConcurrentAccess(t *testing.T) {
 
 	// Create a message queue
 	maxSendQueueCount := 5
-	mq := newMessageQueue(TestLogContext{}, maxSendQueueCount)
+	mq := newMessageQueue(&TestLogContext{silent: true}, maxSendQueueCount)
 
 	// Fill it up to capacity w/ normal messages
 	for i := 0; i < maxSendQueueCount; i++ {
@@ -136,7 +136,7 @@ func TestUrgentMessageOrdering(t *testing.T) { // Test passes, but some assertio
 
 	// Create a message queue
 	maxSendQueueCount := 25
-	mq := newMessageQueue(TestLogContext{}, maxSendQueueCount)
+	mq := newMessageQueue(&TestLogContext{silent: true}, maxSendQueueCount)
 
 	// Add normal messages that are "in-progress" since they have a non-nil msg.encoder
 	for i := 0; i < 5; i++ {
@@ -209,16 +209,28 @@ func TestUrgentMessageOrdering(t *testing.T) { // Test passes, but some assertio
 	assert.True(t, mq.length() == 0)
 }
 
-type TestLogContext struct{}
-
-func (tlc TestLogContext) log(fmt string, params ...interface{}) {
-	log.Printf(fmt, params...)
+type TestLogContext struct {
+	silent bool
+	count  int
 }
 
-func (tlc TestLogContext) logMessage(fmt string, params ...interface{}) {
-	log.Printf(fmt, params...)
+func (tlc *TestLogContext) log(fmt string, params ...interface{}) {
+	if !tlc.silent {
+		log.Printf(fmt, params...)
+	}
+	tlc.count++
 }
 
-func (tlc TestLogContext) logFrame(fmt string, params ...interface{}) {
-	log.Printf(fmt, params...)
+func (tlc *TestLogContext) logMessage(fmt string, params ...interface{}) {
+	if !tlc.silent {
+		log.Printf(fmt, params...)
+	}
+	tlc.count++
+}
+
+func (tlc *TestLogContext) logFrame(fmt string, params ...interface{}) {
+	if !tlc.silent {
+		log.Printf(fmt, params...)
+	}
+	tlc.count++
 }
