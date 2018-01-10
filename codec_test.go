@@ -2,6 +2,7 @@ package blip
 
 import (
 	"bytes"
+	"fmt"
 	"math/rand"
 	"testing"
 
@@ -28,51 +29,51 @@ func init() {
 	}
 }
 
-func TestCompressDecompress(t *testing.T) {
+func TestCompressDecompressEmpty(t *testing.T) {
+	testCompressDecompress(t, []byte{})
+}
+
+func TestCompressDecompressSmallText(t *testing.T) {
 	testCompressDecompress(t, []byte("hello"))
 }
 
 func TestCompressDecompressManySizes(t *testing.T) {
-
-	// Pick two boundary value sizes to test with
-	sizesToTest := []int{1, 65535}
-
-	// And 1000 random sizes to test with
-	for i := 0; i < 1000; i++ {
-		randomSize := rando.Intn(65535)
-		if randomSize > 1 {
-			sizesToTest = append(sizesToTest, randomSize)
-		}
+	for s := 0; s < 65536; s += 1024 {
+		startSize := s
+		endSize := s + 1024
+		t.Run(fmt.Sprintf("%d-%d", startSize, endSize-1), func(t *testing.T) {
+			t.Parallel()
+			for size := startSize; size < endSize; size++ {
+				//t.Logf("Compressing %d bytes", size)
+				testCompressDecompress(t, compressibleDataOfLength(size))
+			}
+		})
 	}
-
-	// Test compress/decompress loop with all of those sizes
-	for _, sizeToTest := range sizesToTest {
-		testCompressDecompress(t, compressibleDataOfLength(sizeToTest))
-	}
-
 }
 
 // Make sure that the decompressor returns an error with completely invalid input
 func TestDecompressInvalidInput(t *testing.T) {
-
-	decompressor := getDecompressor()
+	ctx := TestLogContext{silent: true}
+	decompressor := getDecompressor(&ctx)
 	decompressedBytes, err := decompressor.decompress([]byte("junk_input"), 2)
 	assert.True(t, err != nil)
 	assert.True(t, len(decompressedBytes) == 0)
+	assert.True(t, ctx.count > 0)
 
 }
 
 // Make sure that the decompressor returns an error with valid compressed input, but an invalid checksum
 func TestDecompressInvalidChecksum(t *testing.T) {
+	ctx := TestLogContext{silent: true}
 
 	// Compress some data
 	compressedData, checksum := testCompressData(t, []byte("uncompressed"))
 
-	decompressor := getDecompressor()
+	decompressor := getDecompressor(&ctx)
 	decompressedBytes, err := decompressor.decompress([]byte(compressedData), checksum*2)
 	assert.True(t, err != nil)
 	assert.True(t, len(decompressedBytes) == 0)
-
+	assert.True(t, ctx.count > 0)
 }
 
 func testCompressData(t *testing.T, dataToCompress []byte) (compressedData []byte, checksum uint32) {
@@ -82,8 +83,10 @@ func testCompressData(t *testing.T, dataToCompress []byte) (compressedData []byt
 	compressor := getCompressor(&compressedDest)
 	compressor.enabled = true
 	n, err := compressor.write([]byte(dataToCompress))
+	if err != nil {
+		t.Errorf("Error compressing <%x> of size %d.  Error: %v", dataToCompress, len(dataToCompress), err)
+	}
 	assert.Equals(t, n, len(dataToCompress))
-	assert.True(t, err == nil)
 	compressedData = compressedDest.Bytes()
 	checksum = compressor.getChecksum()
 	returnCompressor(compressor)
@@ -92,7 +95,6 @@ func testCompressData(t *testing.T, dataToCompress []byte) (compressedData []byt
 }
 
 func testCompressDecompress(t *testing.T, dataToCompress []byte) {
-
 	// Compress some data
 	compressedData, checksum := testCompressData(t, dataToCompress)
 
@@ -100,11 +102,11 @@ func testCompressDecompress(t *testing.T, dataToCompress []byte) {
 	//     float32(len(compressedData))/float32(len(dataToCompress)))
 
 	// Decompress it
-	decompressor := getDecompressor()
+	decompressor := getDecompressor(&TestLogContext{})
 	decompressedBytes, err := decompressor.decompress(compressedData, checksum)
 	returnDecompressor(decompressor)
 	if err != nil {
-		t.Errorf("Compression error trying to compress %s of size: %d.  Error: %v", string(dataToCompress), len(dataToCompress), err)
+		t.Errorf("Error decompressing <%x> of size %d.  Error: %v", compressedData, len(compressedData), err)
 	}
 
 	// Make sure that it decompresses to the same data
