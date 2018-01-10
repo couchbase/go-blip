@@ -1,3 +1,5 @@
+[![Build Status](http://drone.couchbase.io/api/badges/couchbase/go-blip/status.svg)](http://drone.couchbase.io/couchbase/go-blip)
+
 # BLIP Implementation for Go
 
 This is a [Go][GO] language [golang] implementation of the [BLIP][BLIP] messaging protocol running over [WebSockets][WEBSOCKET].
