@@ -22,7 +22,7 @@ const deflateTrailerLength = 4
 // 1 means fastest (least) compression, and 9 means best (slowest) compression. Default is 6.
 var CompressionLevel = 6
 
-// A 'deflate' compression context for BLIP messages.
+// A 'deflate' compressor for BLIP messages.
 type compressor struct {
 	checksum hash.Hash32   // Running checksum of pre-compressed data
 	dst      *bytes.Buffer // The stream compressed output is written to
@@ -82,29 +82,29 @@ func (c *compressor) getChecksum() uint32 {
 // (see comment in readAll)
 const kDecompressorBufferSize = 8 * 1024
 
-// A 'deflate' decompression context for BLIP messages.
+// A 'deflate' decompressor for BLIP messages.
 type decompressor struct {
-	context   LogContext
-	checksum  hash.Hash32   // Running checksum of pre-compressed data
-	src       *bytes.Buffer // The stream compressed input is read from
-	z         io.ReadCloser // The 'deflate' decompression context
-	buffer    []byte        // Temporary buffer for decompressed data
-	outputBuf bytes.Buffer  // Temporary buffer used by ReadAll
+	logContext LogContext
+	checksum   hash.Hash32   // Running checksum of pre-compressed data
+	src        *bytes.Buffer // The stream compressed input is read from
+	z          io.ReadCloser // The 'deflate' decompression context
+	buffer     []byte        // Temporary buffer for decompressed data
+	outputBuf  bytes.Buffer  // Temporary buffer used by ReadAll
 }
 
-func newDecompressor(context LogContext) *decompressor {
+func newDecompressor(logContext LogContext) *decompressor {
 	buffer := bytes.NewBuffer(make([]byte, 0, kBigFrameSize))
 	return &decompressor{
-		context:  context,
-		checksum: crc32.NewIEEE(),
-		src:      buffer,
-		z:        flate.NewReader(buffer),
-		buffer:   make([]byte, kDecompressorBufferSize),
+		logContext: logContext,
+		checksum:   crc32.NewIEEE(),
+		src:        buffer,
+		z:          flate.NewReader(buffer),
+		buffer:     make([]byte, kDecompressorBufferSize),
 	}
 }
 
-func (d *decompressor) reset(context LogContext) {
-	d.context = context
+func (d *decompressor) reset(logContext LogContext) {
+	d.logContext = logContext
 	d.checksum = crc32.NewIEEE()
 	d.src.Reset()
 	d.z.(flate.Resetter).Reset(d.src, nil)
@@ -149,7 +149,7 @@ func (d *decompressor) decompress(input []byte, checksum uint32) ([]byte, error)
 	for d.src.Len() > deflateTrailerLength+2 || d.getChecksum() != checksum {
 		n, err := d.z.Read(d.buffer)
 		if err != nil {
-			d.context.log("ERROR decompressing frame: inputLen=%d, remaining=%d, output=%d, error=%v ***\n",
+			d.logContext.log("ERROR decompressing frame: inputLen=%d, remaining=%d, output=%d, error=%v ***\n",
 				len(input), d.src.Len(), d.outputBuf.Len(), err)
 			return nil, err
 		} else if n == 0 {
@@ -195,12 +195,12 @@ func returnCompressor(c *compressor) {
 }
 
 // Gets a decompressor from the pool, or creates a new one if the pool is empty:
-func getDecompressor(context LogContext) *decompressor {
+func getDecompressor(logContext LogContext) *decompressor {
 	if d, ok := decompressorCache.Get().(*decompressor); ok {
-		d.reset(context)
+		d.reset(logContext)
 		return d
 	} else {
-		return newDecompressor(context)
+		return newDecompressor(logContext)
 	}
 }
 

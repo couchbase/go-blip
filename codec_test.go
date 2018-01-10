@@ -38,14 +38,14 @@ func TestCompressDecompressSmallText(t *testing.T) {
 }
 
 func TestCompressDecompressManySizes(t *testing.T) {
-	for baseSize := 0; baseSize < 65536; baseSize += 256 {
-		t.Run(fmt.Sprintf("%d-%d", baseSize, baseSize+255), func(t *testing.T) {
-			for sizeLoop := baseSize; sizeLoop < baseSize+256; sizeLoop++ {
-				size := sizeLoop // make a copy that doesn't change, to use inside the function
-				t.Run(fmt.Sprintf("%d", size), func(t *testing.T) {
-					t.Parallel()
-					testCompressDecompress(t, compressibleDataOfLength(size))
-				})
+	for s := 0; s < 65536; s += 1024 {
+		startSize := s
+		endSize := s + 1024
+		t.Run(fmt.Sprintf("%d-%d", startSize, endSize-1), func(t *testing.T) {
+			t.Parallel()
+			for size := startSize; size < endSize; size++ {
+				//t.Logf("Compressing %d bytes", size)
+				testCompressDecompress(t, compressibleDataOfLength(size))
 			}
 		})
 	}
@@ -95,7 +95,6 @@ func testCompressData(t *testing.T, dataToCompress []byte) (compressedData []byt
 }
 
 func testCompressDecompress(t *testing.T, dataToCompress []byte) {
-
 	// Compress some data
 	compressedData, checksum := testCompressData(t, dataToCompress)
 
