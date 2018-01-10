@@ -43,7 +43,7 @@ func newReceiver(context *Context, conn *websocket.Conn) *receiver {
 		conn:             conn,
 		context:          context,
 		channel:          make(chan []byte, 10),
-		frameDecoder:     getDecompressor(),
+		frameDecoder:     getDecompressor(context),
 		pendingRequests:  msgStreamerMap{},
 		pendingResponses: msgStreamerMap{},
 	}

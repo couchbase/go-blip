@@ -10,6 +10,9 @@ import (
 	"sync"
 )
 
+// The standard trailer appended by 'deflate' when flushing its output. BLIP (like many protocols)
+// suppresses this in the transmitted data. The compressor removes the last 4 bytes ofoutput,
+// and the decompressor appends the trailer to its input.
 const deflateTrailer = "\x00\x00\xff\xff"
 const deflateTrailerLength = 4
 
@@ -56,7 +59,10 @@ func (c *compressor) write(data []byte) (n int, err error) {
 		n, err = c.z.Write(data)
 		if err == nil {
 			c.z.Flush()
-			// Remove the '00 00 FF FF' trailer from the deflated block
+			// Remove the '00 00 FF FF' trailer from the deflated block:
+			// if !bytes.HasSuffix(c.dst.Bytes(), []byte(deflateTrailer)) {
+			//     panic(fmt.Sprintf("Unexpected end of compressed data: %x", c.dst.Bytes()))
+			// }
 			c.dst.Truncate(c.dst.Len() - deflateTrailerLength)
 		}
 	} else {
@@ -78,6 +84,7 @@ const kDecompressorBufferSize = 8 * 1024
 
 // A 'deflate' decompression context for BLIP messages.
 type decompressor struct {
+	context   LogContext
 	checksum  hash.Hash32   // Running checksum of pre-compressed data
 	src       *bytes.Buffer // The stream compressed input is read from
 	z         io.ReadCloser // The 'deflate' decompression context
@@ -85,9 +92,10 @@ type decompressor struct {
 	outputBuf bytes.Buffer  // Temporary buffer used by ReadAll
 }
 
-func newDecompressor() *decompressor {
+func newDecompressor(context LogContext) *decompressor {
 	buffer := bytes.NewBuffer(make([]byte, 0, kBigFrameSize))
 	return &decompressor{
+		context:  context,
 		checksum: crc32.NewIEEE(),
 		src:      buffer,
 		z:        flate.NewReader(buffer),
@@ -95,7 +103,8 @@ func newDecompressor() *decompressor {
 	}
 }
 
-func (d *decompressor) reset() {
+func (d *decompressor) reset(context LogContext) {
+	d.context = context
 	d.checksum = crc32.NewIEEE()
 	d.src.Reset()
 	d.z.(flate.Resetter).Reset(d.src, nil)
@@ -131,17 +140,20 @@ func (d *decompressor) decompress(input []byte, checksum uint32) ([]byte, error)
 		// Empty input
 		return []byte{}, nil
 	}
+
+	// Restore the deflate trailer that was stripped by the compressor:
 	d.src.Write([]byte(deflateTrailer))
 
 	d.outputBuf.Reset()
-	for {
+	// Decompress until the checksum matches and there are only a few bytes of input left:
+	for d.src.Len() > deflateTrailerLength+2 || d.getChecksum() != checksum {
 		n, err := d.z.Read(d.buffer)
 		if err != nil {
-			fmt.Printf("***Decompressor error; inputLen=%d, remaining=%d, output=%d, error=%v ***\n",
+			d.context.log("ERROR decompressing frame: inputLen=%d, remaining=%d, output=%d, error=%v ***\n",
 				len(input), d.src.Len(), d.outputBuf.Len(), err)
 			return nil, err
 		} else if n == 0 {
-			// Nothing more to read; since checksum didn't match on previous loop, fail:
+			// Nothing more to read; since checksum didn't match (above), fail:
 			return nil, fmt.Errorf("Invalid checksum %x; should be %x", d.getChecksum(), checksum)
 		}
 		_, _ = d.checksum.Write(d.buffer[0:n]) // Update checksum (no error possible)
@@ -149,12 +161,6 @@ func (d *decompressor) decompress(input []byte, checksum uint32) ([]byte, error)
 		//fmt.Printf("***Decompressed %d bytes; %d remaining\n", n, d.src.Len())
 		if _, err = d.outputBuf.Write(d.buffer[:n]); err != nil {
 			return nil, err
-		}
-		// Stop if the checksum matches and there are only a few bytes of input left.
-		if remaining := d.src.Len(); remaining <= deflateTrailerLength+2 {
-			if curChecksum := d.getChecksum(); curChecksum == checksum {
-				break // Checksum matches: done!
-			}
 		}
 	}
 
@@ -189,12 +195,12 @@ func returnCompressor(c *compressor) {
 }
 
 // Gets a decompressor from the pool, or creates a new one if the pool is empty:
-func getDecompressor() *decompressor {
+func getDecompressor(context LogContext) *decompressor {
 	if d, ok := decompressorCache.Get().(*decompressor); ok {
-		d.reset()
+		d.reset(context)
 		return d
 	} else {
-		return newDecompressor()
+		return newDecompressor(context)
 	}
 }
 

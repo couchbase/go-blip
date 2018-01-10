@@ -55,7 +55,7 @@ func TestCompressDecompressManySizes(t *testing.T) {
 // Make sure that the decompressor returns an error with completely invalid input
 func TestDecompressInvalidInput(t *testing.T) {
 
-	decompressor := getDecompressor()
+	decompressor := getDecompressor(TestLogContext{})
 	decompressedBytes, err := decompressor.decompress([]byte("junk_input"), 2)
 	assert.True(t, err != nil)
 	assert.True(t, len(decompressedBytes) == 0)
@@ -68,7 +68,7 @@ func TestDecompressInvalidChecksum(t *testing.T) {
 	// Compress some data
 	compressedData, checksum := testCompressData(t, []byte("uncompressed"))
 
-	decompressor := getDecompressor()
+	decompressor := getDecompressor(TestLogContext{})
 	decompressedBytes, err := decompressor.decompress([]byte(compressedData), checksum*2)
 	assert.True(t, err != nil)
 	assert.True(t, len(decompressedBytes) == 0)
@@ -100,7 +100,7 @@ func testCompressDecompress(t *testing.T, dataToCompress []byte) {
 	//     float32(len(compressedData))/float32(len(dataToCompress)))
 
 	// Decompress it
-	decompressor := getDecompressor()
+	decompressor := getDecompressor(TestLogContext{})
 	decompressedBytes, err := decompressor.decompress(compressedData, checksum)
 	returnDecompressor(decompressor)
 	if err != nil {
