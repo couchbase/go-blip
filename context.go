@@ -75,7 +75,7 @@ type WSHandshake func(*websocket.Config, *http.Request) error
 // Creates a WebSocket handshake handler
 func (context *Context) WebSocketHandshake() WSHandshake {
 	return func(config *websocket.Config, rq *http.Request) error {
-		protocolHeader := rq.Header.Get("Sec-WS-Protocols")
+		protocolHeader := rq.Header.Get("Sec-WebSocket-Protocol")
 		if !includesProtocol(protocolHeader, WebSocketProtocolName) {
 			context.log("Error: Client doesn't support WS protocol %s, only %s", WebSocketProtocolName, protocolHeader)
 			return &websocket.ProtocolError{"I only speak " + WebSocketProtocolName + " protocol"}
