@@ -103,7 +103,7 @@ func (sender *Sender) Close() {
 // Spawns a goroutine that will write frames to the connection until Stop() is called.
 func (sender *Sender) start() {
 	sender.conn.PayloadType = websocket.BinaryFrame
-	go (func() {
+	go func() {
 		defer func() {
 			if panicked := recover(); panicked != nil {
 				log.Printf("*** PANIC in BLIP sender: %v\n%s", panicked, debug.Stack())
@@ -156,7 +156,7 @@ func (sender *Sender) start() {
 		}
 		returnCompressor(frameEncoder)
 		sender.context.logFrame("Sender stopped")
-	})()
+	}()
 }
 
 //////// FLOW CONTROL:
