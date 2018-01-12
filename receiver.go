@@ -5,6 +5,8 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"log"
+	"runtime/debug"
 	"sync"
 
 	"golang.org/x/net/websocket"
@@ -58,8 +60,7 @@ func (r *receiver) receiveLoop() error {
 			if err == io.EOF {
 				r.context.logFrame("receiveLoop stopped")
 			} else if r.parseError != nil {
-				r.context.log("Error: receiveLoop exiting due to parse error: %v", r.parseError)
-				err = fmt.Errorf("BLIP frame parse error: %v", r.parseError)
+				err = r.parseError
 			} else {
 				r.context.log("Error: receiveLoop exiting with WebSocket error: %v", err)
 			}
@@ -72,19 +73,35 @@ func (r *receiver) receiveLoop() error {
 }
 
 func (r *receiver) parseLoop() {
+	// Panic handler:
+	defer func() {
+		if p := recover(); p != nil {
+			log.Printf("*** PANIC in BLIP parseLoop: %v\n%s", p, debug.Stack())
+			err, _ := p.(error)
+			if err == nil {
+				err = fmt.Errorf("Panic: %v", p)
+			}
+			r.fatalError(err)
+		}
+	}()
+
 	for frame := range r.channel {
 		if r.parseError == nil {
 			if err := r.handleIncomingFrame(frame); err != nil {
-				r.context.log("Error: parseLoop closing socket due to BLIP error: %v", err)
-				r.parseError = err
-				r.conn.Close()
-				//TODO: Should set a WebSocket close code/msg, but websocket.Conn has no API for that
+				r.fatalError(err)
 			}
 		}
 	}
 	r.context.logFrame("parseLoop stopped")
 	returnDecompressor(r.frameDecoder)
 	r.frameDecoder = nil
+}
+
+func (r *receiver) fatalError(err error) {
+	r.context.log("Error: parseLoop closing socket due to error: %v", err)
+	r.parseError = err
+	r.conn.Close()
+	//TODO: Should set a WebSocket close code/msg, but websocket.Conn has no API for that
 }
 
 func (r *receiver) handleIncomingFrame(frame []byte) error {
@@ -119,23 +136,23 @@ func (r *receiver) handleIncomingFrame(frame []byte) error {
 		compressed = flags&kCompressed != 0
 	}
 
-	if r.context.LogFrames {
-		r.context.logFrame("Received frame: %s (flags=%8b, length=%d)",
-			frameString(requestNumber, flags), flags, r.frameBuffer.Len())
-	}
+		if r.context.LogFrames {
+			r.context.logFrame("Received frame: %s (flags=%8b, length=%d)",
+				frameString(requestNumber, flags), flags, r.frameBuffer.Len())
+		}
 
-	// Read/decompress the body of the frame:
+		// Read/decompress the body of the frame:
 	rawFrame := frame
 	if compressed {
 		frame, err = r.frameDecoder.decompress(r.frameBuffer.Bytes(), *checksum)
-	} else {
+		} else {
 		frame, err = r.frameDecoder.passthrough(r.frameBuffer.Bytes(), checksum)
-	}
-	if err != nil {
-		r.context.log("Error decompressing frame %s: %v. Raw frame = <%x>",
+		}
+		if err != nil {
+			r.context.log("Error decompressing frame %s: %v. Raw frame = <%x>",
 			frameString(requestNumber, flags), err, rawFrame)
-		return err
-	}
+			return err
+		}
 
 	if isACK {
 		bytesReceived, n := binary.Uvarint(frame)
@@ -143,9 +160,9 @@ func (r *receiver) handleIncomingFrame(frame []byte) error {
 			r.sender.receivedAck(requestNumber, msgType.ackSourceType(), bytesReceived)
 		} else {
 			r.context.log("Error reading ACK frame")
-		}
-		return nil
 	}
+		return nil
+}
 
 	// Look up or create the writer stream for this message:
 	complete := (flags & kMoreComing) == 0

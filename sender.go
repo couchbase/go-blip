@@ -3,7 +3,9 @@ package blip
 import (
 	"bytes"
 	"encoding/binary"
+	"log"
 	"net"
+	"runtime/debug"
 	"sync"
 
 	"golang.org/x/net/websocket"
@@ -102,6 +104,12 @@ func (sender *Sender) Close() {
 func (sender *Sender) start() {
 	sender.conn.PayloadType = websocket.BinaryFrame
 	go (func() {
+		defer func() {
+			if panicked := recover(); panicked != nil {
+				log.Printf("*** PANIC in BLIP sender: %v\n%s", panicked, debug.Stack())
+			}
+		}()
+
 		sender.context.logFrame("Sender starting...")
 		frameBuffer := bytes.NewBuffer(make([]byte, 0, kBigFrameSize))
 		frameEncoder := getCompressor(frameBuffer)
@@ -125,8 +133,8 @@ func (sender *Sender) start() {
 			i += binary.PutUvarint(header[i:], uint64(flags))
 			frameBuffer.Write(header[:i])
 
-			frameEncoder.enableCompression(msg.Compressed())
-			frameEncoder.write(body)
+				frameEncoder.enableCompression(msg.Compressed())
+				frameEncoder.write(body)
 
 			if msgType := msg.Type(); !msgType.isAck() {
 				var checksum [4]byte

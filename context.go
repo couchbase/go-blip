@@ -2,6 +2,7 @@ package blip
 
 import (
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"runtime/debug"
@@ -25,13 +26,13 @@ type LogFn func(string, ...interface{})
 
 // Defines how incoming requests are dispatched to handler functions.
 type Context struct {
-	HandlerForProfile      map[string]Handler // Handler function for a request Profile
-	DefaultHandler         Handler            // Handler for all otherwise unhandled requests
-	UnauthenticatedHandler Handler            // If present, handles all incoming requests till Sender is authenticated
-	MaxSendQueueCount      int                // Max # of messages being sent at once (if >0)
-	Logger                 LogFn              // Logging callback; defaults to log.Printf
-	LogMessages            bool               // If true, will log about messages
-	LogFrames              bool               // If true, will log about frames (very verbose)
+	HandlerForProfile map[string]Handler // Handler function for a request Profile
+	DefaultHandler    Handler            // Handler for all otherwise unhandled requests
+	FatalErrorHandler func(error)        // Called when connection has a fatal error
+	MaxSendQueueCount int                // Max # of messages being sent at once (if >0)
+	Logger            LogFn              // Logging callback; defaults to log.Printf
+	LogMessages       bool               // If true, will log about messages
+	LogFrames         bool               // If true, will log about frames (very verbose)
 }
 
 // Defines a logging interface for use within the blip codebase.  Implemented by Context.
@@ -91,10 +92,13 @@ func (context *Context) WebSocketHandler() websocket.Handler {
 		context.log("** Start handler...")
 		sender := context.start(ws)
 		err := sender.receiver.receiveLoop()
-		if err != nil {
-			context.log("** Handler exited: %v", err)
-		}
 		sender.Stop()
+		if err != nil && err != io.EOF {
+			context.log("** Handler exited: %v", err)
+			if context.FatalErrorHandler != nil {
+				context.FatalErrorHandler(err)
+			}
+		}
 	}
 }
 
