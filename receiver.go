@@ -102,6 +102,8 @@ func (r *receiver) fatalError(err error) {
 	r.parseError = err
 	r.conn.Close()
 	//TODO: Should set a WebSocket close code/msg, but websocket.Conn has no API for that
+	// (Gorilla's WebSocket package does...) This isn't harmful, it just means the peer won't know
+	// the exact reason the connection closed.
 }
 
 func (r *receiver) handleIncomingFrame(frame []byte) error {
