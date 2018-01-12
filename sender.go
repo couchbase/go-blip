@@ -3,7 +3,9 @@ package blip
 import (
 	"bytes"
 	"encoding/binary"
+	"log"
 	"net"
+	"runtime/debug"
 	"sync"
 
 	"golang.org/x/net/websocket"
@@ -101,7 +103,13 @@ func (sender *Sender) Close() {
 // Spawns a goroutine that will write frames to the connection until Stop() is called.
 func (sender *Sender) start() {
 	sender.conn.PayloadType = websocket.BinaryFrame
-	go (func() {
+	go func() {
+		defer func() {
+			if panicked := recover(); panicked != nil {
+				log.Printf("*** PANIC in BLIP sender: %v\n%s", panicked, debug.Stack())
+			}
+		}()
+
 		sender.context.logFrame("Sender starting...")
 		frameBuffer := bytes.NewBuffer(make([]byte, 0, kBigFrameSize))
 		frameEncoder := getCompressor(frameBuffer)
@@ -125,10 +133,12 @@ func (sender *Sender) start() {
 			i += binary.PutUvarint(header[i:], uint64(flags))
 			frameBuffer.Write(header[:i])
 
-			frameEncoder.enableCompression(msg.Compressed())
-			frameEncoder.write(body)
-
-			if msgType := msg.Type(); !msgType.isAck() {
+			if msgType := msg.Type(); msgType.isAck() {
+				// ACKs don't go through the codec nor contain a checksum:
+				frameBuffer.Write(body)
+			} else {
+				frameEncoder.enableCompression(msg.Compressed())
+				frameEncoder.write(body)
 				var checksum [4]byte
 				binary.BigEndian.PutUint32(checksum[:], frameEncoder.getChecksum())
 				frameBuffer.Write(checksum[:])
@@ -146,7 +156,7 @@ func (sender *Sender) start() {
 		}
 		returnCompressor(frameEncoder)
 		sender.context.logFrame("Sender stopped")
-	})()
+	}()
 }
 
 //////// FLOW CONTROL:
