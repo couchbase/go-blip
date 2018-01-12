@@ -67,7 +67,12 @@ func (context *Context) Dial(url string, origin string) (*Sender, error) {
 		return nil, err
 	}
 	sender := context.start(ws)
-	go sender.receiver.receiveLoop()
+	go func() {
+		err := sender.receiver.receiveLoop()
+		if err != nil {
+			context.log("** receiveLoop exited: %v", err)
+		}
+	}()
 	return sender, nil
 }
 
