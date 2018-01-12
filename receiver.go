@@ -123,18 +123,26 @@ func (r *receiver) handleIncomingFrame(frame []byte) error {
 	flags := frameFlags(n)
 	msgType := flags.messageType()
 
-	compressed := false
-	var checksum *uint32
-	isACK := msgType.isAck()
-	if !isACK {
-		// Read checksum (except for ACK messages which don't have one, nor any compression)
+	if msgType.isAck() {
+		// ACKs are parsed specially. They don't go through the codec nor contain a checksum:
+		body := r.frameBuffer.Bytes()
+		bytesReceived, n := binary.Uvarint(body)
+		if n > 0 {
+			r.sender.receivedAck(requestNumber, msgType.ackSourceType(), bytesReceived)
+		} else {
+			r.context.log("Error reading ACK frame: %x", body)
+		}
+		return nil
+
+	} else {
+		// Regular frames have a checksum:
 		bufferedFrame := r.frameBuffer.Bytes()
+		if len(frame) < checksumLength {
+			return fmt.Errorf("Illegally short frame")
+		}
 		checksumSlice := bufferedFrame[len(bufferedFrame)-checksumLength : len(bufferedFrame)]
-		ck := binary.BigEndian.Uint32(checksumSlice)
-		checksum = &ck
+		checksum := binary.BigEndian.Uint32(checksumSlice)
 		r.frameBuffer.Truncate(r.frameBuffer.Len() - checksumLength)
-		compressed = flags&kCompressed != 0
-	}
 
 		if r.context.LogFrames {
 			r.context.logFrame("Received frame: %s (flags=%8b, length=%d)",
@@ -142,31 +150,27 @@ func (r *receiver) handleIncomingFrame(frame []byte) error {
 		}
 
 		// Read/decompress the body of the frame:
-	rawFrame := frame
-	if compressed {
-		frame, err = r.frameDecoder.decompress(r.frameBuffer.Bytes(), *checksum)
+		var body []byte
+		if flags&kCompressed != 0 {
+			body, err = r.frameDecoder.decompress(r.frameBuffer.Bytes(), checksum)
 		} else {
-		frame, err = r.frameDecoder.passthrough(r.frameBuffer.Bytes(), checksum)
+			body, err = r.frameDecoder.passthrough(r.frameBuffer.Bytes(), &checksum)
 		}
 		if err != nil {
 			r.context.log("Error decompressing frame %s: %v. Raw frame = <%x>",
-			frameString(requestNumber, flags), err, rawFrame)
+				frameString(requestNumber, flags), err, frame)
 			return err
 		}
 
-	if isACK {
-		bytesReceived, n := binary.Uvarint(frame)
-		if n > 0 {
-			r.sender.receivedAck(requestNumber, msgType.ackSourceType(), bytesReceived)
-		} else {
-			r.context.log("Error reading ACK frame")
+		return r.processFrame(requestNumber, flags, body)
 	}
-		return nil
 }
 
+func (r *receiver) processFrame(requestNumber MessageNumber, flags frameFlags, frame []byte) error {
 	// Look up or create the writer stream for this message:
 	complete := (flags & kMoreComing) == 0
 	var msgStream *msgStreamer
+	var err error
 	switch flags.messageType() {
 	case RequestType:
 		msgStream, err = r.getPendingRequest(requestNumber, flags, complete)
@@ -193,11 +197,11 @@ func (r *receiver) handleIncomingFrame(frame []byte) error {
 			oldWritten := msgStream.bytesWritten
 			msgStream.bytesWritten += uint64(frameSize)
 			if oldWritten > 0 && (oldWritten/kAckInterval) < (msgStream.bytesWritten/kAckInterval) {
-				r.sender.sendAck(requestNumber, msgType, msgStream.bytesWritten)
+				r.sender.sendAck(requestNumber, flags.messageType(), msgStream.bytesWritten)
 			}
 		}
 	}
-	return nil
+	return err
 }
 
 func (r *receiver) getPendingRequest(requestNumber MessageNumber, flags frameFlags, complete bool) (msgStream *msgStreamer, err error) {

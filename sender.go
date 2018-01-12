@@ -133,10 +133,12 @@ func (sender *Sender) start() {
 			i += binary.PutUvarint(header[i:], uint64(flags))
 			frameBuffer.Write(header[:i])
 
+			if msgType := msg.Type(); msgType.isAck() {
+				// ACKs don't go through the codec nor contain a checksum:
+				frameBuffer.Write(body)
+			} else {
 				frameEncoder.enableCompression(msg.Compressed())
 				frameEncoder.write(body)
-
-			if msgType := msg.Type(); !msgType.isAck() {
 				var checksum [4]byte
 				binary.BigEndian.PutUint32(checksum[:], frameEncoder.getChecksum())
 				frameBuffer.Write(checksum[:])
