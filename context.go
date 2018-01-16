@@ -76,6 +76,22 @@ func (context *Context) Dial(url string, origin string) (*Sender, error) {
 	return sender, nil
 }
 
+func (context *Context) DialConfig(config *websocket.Config) (*Sender, error) {
+	config.Protocol = []string{WebSocketProtocolName}
+	ws, err := websocket.DialConfig(config)
+	if err != nil {
+		return nil, err
+	}
+	sender := context.start(ws)
+	go func() {
+		err := sender.receiver.receiveLoop()
+		if err != nil {
+			context.log("** receiveLoop exited: %v", err)
+		}
+	}()
+	return sender, nil
+}
+
 type WSHandshake func(*websocket.Config, *http.Request) error
 
 // Creates a WebSocket handshake handler
