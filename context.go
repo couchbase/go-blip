@@ -62,14 +62,11 @@ func (context *Context) start(ws *websocket.Conn) *Sender {
 
 // Opens a BLIP connection to a host.
 func (context *Context) Dial(url string, origin string) (*Sender, error) {
-
 	config, err := websocket.NewConfig(url, origin)
 	if err != nil {
 		return nil, err
 	}
-
 	return context.DialConfig(config)
-
 }
 
 // Opens a BLIP connection to a host given a websocket.Config, which allows
