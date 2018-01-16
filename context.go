@@ -62,20 +62,18 @@ func (context *Context) start(ws *websocket.Conn) *Sender {
 
 // Opens a BLIP connection to a host.
 func (context *Context) Dial(url string, origin string) (*Sender, error) {
-	ws, err := websocket.Dial(url, WebSocketProtocolName, origin)
+
+	config, err := websocket.NewConfig(url, origin)
 	if err != nil {
 		return nil, err
 	}
-	sender := context.start(ws)
-	go func() {
-		err := sender.receiver.receiveLoop()
-		if err != nil {
-			context.log("** receiveLoop exited: %v", err)
-		}
-	}()
-	return sender, nil
+
+	return context.DialConfig(config)
+
 }
 
+// Opens a BLIP connection to a host given a websocket.Config, which allows
+// the caller to specify Authorization header.
 func (context *Context) DialConfig(config *websocket.Config) (*Sender, error) {
 	config.Protocol = []string{WebSocketProtocolName}
 	ws, err := websocket.DialConfig(config)
