@@ -246,7 +246,7 @@ func (r *receiver) getPendingResponse(requestNumber MessageNumber, flags frameFl
 	} else if requestNumber <= r.maxPendingResponseNumber {
 		r.context.log("Warning: Unexpected response frame to my msg #%d", requestNumber) // benign
 	} else {
-		err = fmt.Errorf("Bogus message number %d in response", requestNumber)
+		err = fmt.Errorf("Bogus message number %d in response.  Expected to be less than max pending response number (%d)", requestNumber, r.maxPendingResponseNumber)
 	}
 	return
 }
