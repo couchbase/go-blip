@@ -76,7 +76,7 @@ func (r *receiver) parseLoop() {
 	// Panic handler:
 	defer func() {
 		if p := recover(); p != nil {
-			log.Printf("*** PANIC in BLIP parseLoop: %v\n%s", p, debug.Stack())
+			log.Printf("PANIC in BLIP parseLoop: %v\n%s", p, debug.Stack())
 			err, _ := p.(error)
 			if err == nil {
 				err = fmt.Errorf("Panic: %v", p)
