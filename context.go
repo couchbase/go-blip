@@ -81,7 +81,7 @@ func (context *Context) DialConfig(config *websocket.Config) (*Sender, error) {
 	go func() {
 		err := sender.receiver.receiveLoop()
 		if err != nil {
-			context.log("** receiveLoop exited: %v", err)
+			context.log("** BLIP/Websocket receiveLoop exited: %v", err)
 		}
 	}()
 	return sender, nil
@@ -105,12 +105,12 @@ func (context *Context) WebSocketHandshake() WSHandshake {
 // Creates a WebSocket connection handler that dispatches BLIP messages to the Context.
 func (context *Context) WebSocketHandler() websocket.Handler {
 	return func(ws *websocket.Conn) {
-		context.log("** Start handler...")
+		context.log("** Start BLIP/Websocket handler...")
 		sender := context.start(ws)
 		err := sender.receiver.receiveLoop()
 		sender.Stop()
 		if err != nil && err != io.EOF {
-			context.log("** Handler exited: %v", err)
+			context.log("** BLIP/Websocket Handler exited: %v", err)
 			if context.FatalErrorHandler != nil {
 				context.FatalErrorHandler(err)
 			}
