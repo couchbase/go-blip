@@ -3,7 +3,6 @@ package blip
 import (
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"runtime/debug"
 	"strings"
@@ -21,8 +20,6 @@ type Handler func(request *Message)
 func Unhandled(request *Message) {
 	request.Response().SetError(BLIPErrorDomain, 404, "No handler for BLIP request")
 }
-
-type LogFn func(string, ...interface{})
 
 // Defines how incoming requests are dispatched to handler functions.
 type Context struct {
@@ -49,7 +46,7 @@ type LogContext interface {
 func NewContext() *Context {
 	return &Context{
 		HandlerForProfile: map[string]Handler{},
-		Logger:            log.Printf,
+		Logger:            logPrintfWrapper(),
 	}
 }
 
@@ -81,7 +78,7 @@ func (context *Context) DialConfig(config *websocket.Config) (*Sender, error) {
 	go func() {
 		err := sender.receiver.receiveLoop()
 		if err != nil {
-			context.log("** receiveLoop exited: %v", err)
+			context.log("BLIP/Websocket receiveLoop exited: %v", err)
 		}
 	}()
 	return sender, nil
@@ -105,12 +102,12 @@ func (context *Context) WebSocketHandshake() WSHandshake {
 // Creates a WebSocket connection handler that dispatches BLIP messages to the Context.
 func (context *Context) WebSocketHandler() websocket.Handler {
 	return func(ws *websocket.Conn) {
-		context.log("** Start handler...")
+		context.log("Start BLIP/Websocket handler...")
 		sender := context.start(ws)
 		err := sender.receiver.receiveLoop()
 		sender.Stop()
 		if err != nil && err != io.EOF {
-			context.log("** Handler exited: %v", err)
+			context.log("BLIP/Websocket Handler exited: %v", err)
 			if context.FatalErrorHandler != nil {
 				context.FatalErrorHandler(err)
 			}
@@ -135,7 +132,7 @@ func (context *Context) dispatchRequest(request *Message, sender *Sender) {
 		response := request.Response()
 		if panicked := recover(); panicked != nil {
 			stack := debug.Stack()
-			context.log("*** PANIC handling BLIP request %v: %v:\n%s", request, panicked, stack)
+			context.log("PANIC handling BLIP request %v: %v:\n%s", request, panicked, stack)
 			if response != nil {
 				response.SetError(BLIPErrorDomain, 500, fmt.Sprintf("Panic: %v", panicked))
 			}
@@ -161,7 +158,7 @@ func (context *Context) dispatchResponse(response *Message) {
 		// On return/panic, log a warning:
 		if panicked := recover(); panicked != nil {
 			stack := debug.Stack()
-			context.log("*** PANIC handling BLIP response %v: %v:\n%s", response, panicked, stack)
+			context.log("PANIC handling BLIP response %v: %v:\n%s", response, panicked, stack)
 		}
 	}()
 
@@ -172,18 +169,18 @@ func (context *Context) dispatchResponse(response *Message) {
 //////// LOGGING:
 
 func (context *Context) log(fmt string, params ...interface{}) {
-	context.Logger(fmt, params...)
+	context.Logger(LogGeneral, fmt, params...)
 }
 
 func (context *Context) logMessage(fmt string, params ...interface{}) {
 	if context.LogMessages {
-		context.Logger(fmt, params...)
+		context.Logger(LogMessage, fmt, params...)
 	}
 }
 
 func (context *Context) logFrame(fmt string, params ...interface{}) {
 	if context.LogFrames {
-		context.Logger(fmt, params...)
+		context.Logger(LogFrame, fmt, params...)
 	}
 }
 

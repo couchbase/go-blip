@@ -106,7 +106,7 @@ func (sender *Sender) start() {
 	go func() {
 		defer func() {
 			if panicked := recover(); panicked != nil {
-				log.Printf("*** PANIC in BLIP sender: %v\n%s", panicked, debug.Stack())
+				log.Printf("PANIC in BLIP sender: %v\n%s", panicked, debug.Stack())
 			}
 		}()
 

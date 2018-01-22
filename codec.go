@@ -149,7 +149,7 @@ func (d *decompressor) decompress(input []byte, checksum uint32) ([]byte, error)
 	for d.src.Len() > deflateTrailerLength+2 || d.getChecksum() != checksum {
 		n, err := d.z.Read(d.buffer)
 		if err != nil {
-			d.logContext.log("ERROR decompressing frame: inputLen=%d, remaining=%d, output=%d, error=%v ***\n",
+			d.logContext.log("ERROR decompressing frame: inputLen=%d, remaining=%d, output=%d, error=%v\n",
 				len(input), d.src.Len(), d.outputBuf.Len(), err)
 			return nil, err
 		} else if n == 0 {
@@ -158,7 +158,7 @@ func (d *decompressor) decompress(input []byte, checksum uint32) ([]byte, error)
 		}
 		_, _ = d.checksum.Write(d.buffer[0:n]) // Update checksum (no error possible)
 
-		//fmt.Printf("***Decompressed %d bytes; %d remaining\n", n, d.src.Len())
+		//fmt.Printf("Decompressed %d bytes; %d remaining\n", n, d.src.Len())
 		if _, err = d.outputBuf.Write(d.buffer[:n]); err != nil {
 			return nil, err
 		}

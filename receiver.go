@@ -76,7 +76,7 @@ func (r *receiver) parseLoop() {
 	// Panic handler:
 	defer func() {
 		if p := recover(); p != nil {
-			log.Printf("*** PANIC in BLIP parseLoop: %v\n%s", p, debug.Stack())
+			log.Printf("PANIC in BLIP parseLoop: %v\n%s", p, debug.Stack())
 			err, _ := p.(error)
 			if err == nil {
 				err = fmt.Errorf("Panic: %v", p)
@@ -246,7 +246,7 @@ func (r *receiver) getPendingResponse(requestNumber MessageNumber, flags frameFl
 	} else if requestNumber <= r.maxPendingResponseNumber {
 		r.context.log("Warning: Unexpected response frame to my msg #%d", requestNumber) // benign
 	} else {
-		err = fmt.Errorf("Bogus message number %d in response", requestNumber)
+		err = fmt.Errorf("Bogus message number %d in response.  Expected to be less than max pending response number (%d)", requestNumber, r.maxPendingResponseNumber)
 	}
 	return
 }
