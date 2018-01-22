@@ -15,7 +15,7 @@ const (
 type LogFn func(LogEventType, string, ...interface{})
 
 // Wrap log.Printf to log message.  Discards LogEventType parameter, which matches behavior before that was added.
-func LogPrintfWrapper() LogFn {
+func logPrintfWrapper() LogFn {
 	return func(_ LogEventType, fmt string, args ...interface{}) {
 		log.Printf(fmt, args...)
 	}

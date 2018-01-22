@@ -46,7 +46,7 @@ type LogContext interface {
 func NewContext() *Context {
 	return &Context{
 		HandlerForProfile: map[string]Handler{},
-		Logger:            LogPrintfWrapper(),
+		Logger:            logPrintfWrapper(),
 	}
 }
 
