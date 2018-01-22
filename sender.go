@@ -110,7 +110,7 @@ func (sender *Sender) start() {
 			}
 		}()
 
-		sender.context.logFrame("Sender starting...")
+		sender.context.logFrame("[%s] Sender starting", sender.context.ID)
 		frameBuffer := bytes.NewBuffer(make([]byte, 0, kBigFrameSize))
 		frameEncoder := getCompressor(frameBuffer)
 		for {
@@ -127,7 +127,7 @@ func (sender *Sender) start() {
 
 			body, flags := msg.nextFrameToSend(maxSize - 10)
 
-			sender.context.logFrame("Sending frame: %v (flags=%8b, size=%5d)", msg, flags, len(body))
+			sender.context.logFrame("[%s] Sending frame: %v (flags=%8b, size=%5d)", sender.context.ID, msg, flags, len(body))
 			var header [2 * binary.MaxVarintLen64]byte
 			i := binary.PutUvarint(header[:], uint64(msg.number))
 			i += binary.PutUvarint(header[i:], uint64(flags))
@@ -155,7 +155,7 @@ func (sender *Sender) start() {
 			}
 		}
 		returnCompressor(frameEncoder)
-		sender.context.logFrame("Sender stopped")
+		sender.context.logFrame("[%s] Sender stopped", sender.context.ID)
 	}()
 }
 
@@ -187,13 +187,13 @@ func (sender *Sender) requeue(msg *Message, bytesSent uint64) {
 		sender.queue.push(msg)
 	} else {
 		// or pause it till it gets an ACK
-		sender.context.logFrame("Pausing %v", msg)
+		sender.context.logFrame("[%s] Pausing %v", sender.context.ID, msg)
 		sender.icebox[msgKey{msgNo: msg.number, msgType: msg.Type()}] = msg
 	}
 }
 
 func (sender *Sender) receivedAck(requestNumber MessageNumber, msgType MessageType, bytesReceived uint64) {
-	sender.context.logFrame("Received ACK of %s#%d (%d bytes)", msgType.name(), requestNumber, bytesReceived)
+	sender.context.logFrame("[%s] Received ACK of %s#%d (%d bytes)", sender.context.ID, msgType.name(), requestNumber, bytesReceived)
 	sender.requeueLock.Lock()
 	defer sender.requeueLock.Unlock()
 	if msg := sender.queue.find(requestNumber, msgType); msg != nil {
@@ -205,7 +205,7 @@ func (sender *Sender) receivedAck(requestNumber MessageNumber, msgType MessageTy
 		if msg := sender.icebox[key]; msg != nil {
 			msg.bytesAcked = bytesReceived
 			if msg.bytesSent <= msg.bytesAcked+kMaxUnackedBytes {
-				sender.context.logFrame("Resuming %v", msg)
+				sender.context.logFrame("[%s] Resuming %v", sender.context.ID, msg)
 				delete(sender.icebox, key)
 				sender.queue.push(msg)
 			}
@@ -214,7 +214,7 @@ func (sender *Sender) receivedAck(requestNumber MessageNumber, msgType MessageTy
 }
 
 func (sender *Sender) sendAck(msgNo MessageNumber, msgType MessageType, bytesReceived uint64) {
-	sender.context.logFrame("Sending ACK of %s#%d (%d bytes)", msgType.name(), msgNo, bytesReceived)
+	sender.context.logFrame("[%s] Sending ACK of %s#%d (%d bytes)", sender.context.ID, msgType.name(), msgNo, bytesReceived)
 	flags := frameFlags(msgType.ackType()) | kNoReply | kUrgent
 	var buffer [3 * binary.MaxVarintLen64]byte
 	i := binary.PutUvarint(buffer[:], uint64(msgNo))
