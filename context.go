@@ -3,7 +3,6 @@ package blip
 import (
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"runtime/debug"
 	"strings"
@@ -21,8 +20,6 @@ type Handler func(request *Message)
 func Unhandled(request *Message) {
 	request.Response().SetError(BLIPErrorDomain, 404, "No handler for BLIP request")
 }
-
-type LogFn func(string, ...interface{})
 
 // Defines how incoming requests are dispatched to handler functions.
 type Context struct {
@@ -49,7 +46,7 @@ type LogContext interface {
 func NewContext() *Context {
 	return &Context{
 		HandlerForProfile: map[string]Handler{},
-		Logger:            log.Printf,
+		Logger:            LogPrintfWrapper(),
 	}
 }
 
@@ -172,18 +169,18 @@ func (context *Context) dispatchResponse(response *Message) {
 //////// LOGGING:
 
 func (context *Context) log(fmt string, params ...interface{}) {
-	context.Logger(fmt, params...)
+	context.Logger(LogGeneral, fmt, params...)
 }
 
 func (context *Context) logMessage(fmt string, params ...interface{}) {
 	if context.LogMessages {
-		context.Logger(fmt, params...)
+		context.Logger(LogMessage, fmt, params...)
 	}
 }
 
 func (context *Context) logFrame(fmt string, params ...interface{}) {
 	if context.LogFrames {
-		context.Logger(fmt, params...)
+		context.Logger(LogFrame, fmt, params...)
 	}
 }
 
