@@ -3,6 +3,7 @@ package blip
 import (
 	"fmt"
 	"io"
+	"math/rand"
 	"net/http"
 	"runtime/debug"
 	"strings"
@@ -11,7 +12,8 @@ import (
 )
 
 // A function that handles an incoming BLIP request and optionally sends a response.
-// A handler is called on a new goroutine so it can take as long as it needs to.
+// A handler is called on a
+// new goroutine so it can take as long as it needs to.
 // For example, if it has to send a synchronous network request before it can construct
 // a response, that's fine.
 type Handler func(request *Message)
@@ -30,6 +32,9 @@ type Context struct {
 	Logger            LogFn              // Logging callback; defaults to log.Printf
 	LogMessages       bool               // If true, will log about messages
 	LogFrames         bool               // If true, will log about frames (very verbose)
+
+	// An identifier that uniquely defines the context.  NOTE: Random Number Generator not seeded by go-blip.
+	ID string
 }
 
 // Defines a logging interface for use within the blip codebase.  Implemented by Context.
@@ -47,6 +52,7 @@ func NewContext() *Context {
 	return &Context{
 		HandlerForProfile: map[string]Handler{},
 		Logger:            logPrintfWrapper(),
+		ID:                fmt.Sprintf("%x", rand.Int63()),
 	}
 }
 
@@ -78,7 +84,7 @@ func (context *Context) DialConfig(config *websocket.Config) (*Sender, error) {
 	go func() {
 		err := sender.receiver.receiveLoop()
 		if err != nil {
-			context.log("BLIP/Websocket receiveLoop exited: %v", err)
+			context.log("[%s] BLIP/Websocket receiveLoop exited: %v", context.ID, err)
 		}
 	}()
 	return sender, nil
@@ -91,7 +97,7 @@ func (context *Context) WebSocketHandshake() WSHandshake {
 	return func(config *websocket.Config, rq *http.Request) error {
 		protocolHeader := rq.Header.Get("Sec-WebSocket-Protocol")
 		if !includesProtocol(protocolHeader, WebSocketProtocolName) {
-			context.log("Error: Client doesn't support WS protocol %s, only %s", WebSocketProtocolName, protocolHeader)
+			context.log("[%s] Error: Client doesn't support WS protocol %s, only %s", context.ID, WebSocketProtocolName, protocolHeader)
 			return &websocket.ProtocolError{"I only speak " + WebSocketProtocolName + " protocol"}
 		}
 		config.Protocol = []string{WebSocketProtocolName}
@@ -102,12 +108,12 @@ func (context *Context) WebSocketHandshake() WSHandshake {
 // Creates a WebSocket connection handler that dispatches BLIP messages to the Context.
 func (context *Context) WebSocketHandler() websocket.Handler {
 	return func(ws *websocket.Conn) {
-		context.log("Start BLIP/Websocket handler...")
+		context.log("[%s] Start BLIP/Websocket handler", context.ID)
 		sender := context.start(ws)
 		err := sender.receiver.receiveLoop()
 		sender.Stop()
 		if err != nil && err != io.EOF {
-			context.log("BLIP/Websocket Handler exited: %v", err)
+			context.log("[%s] BLIP/Websocket Handler exited: %v", context.ID, err)
 			if context.FatalErrorHandler != nil {
 				context.FatalErrorHandler(err)
 			}
@@ -132,7 +138,7 @@ func (context *Context) dispatchRequest(request *Message, sender *Sender) {
 		response := request.Response()
 		if panicked := recover(); panicked != nil {
 			stack := debug.Stack()
-			context.log("PANIC handling BLIP request %v: %v:\n%s", request, panicked, stack)
+			context.log("[%s] PANIC handling BLIP request %v: %v:\n%s", context.ID, request, panicked, stack)
 			if response != nil {
 				response.SetError(BLIPErrorDomain, 500, fmt.Sprintf("Panic: %v", panicked))
 			}
@@ -142,7 +148,7 @@ func (context *Context) dispatchRequest(request *Message, sender *Sender) {
 		}
 	}()
 
-	context.logMessage("INCOMING REQUEST: %s", request)
+	context.logMessage("[%s] Incoming BLIP request: %s", context.ID, request)
 	handler := context.HandlerForProfile[request.Properties["Profile"]]
 	if handler == nil {
 		handler = context.DefaultHandler
@@ -158,11 +164,11 @@ func (context *Context) dispatchResponse(response *Message) {
 		// On return/panic, log a warning:
 		if panicked := recover(); panicked != nil {
 			stack := debug.Stack()
-			context.log("PANIC handling BLIP response %v: %v:\n%s", response, panicked, stack)
+			context.log("[%s] PANIC handling BLIP response %v: %v:\n%s", context.ID, response, panicked, stack)
 		}
 	}()
 
-	context.logMessage("INCOMING RESPONSE: %s", response)
+	context.logMessage("[%s] Incoming BLIP response: %s", context.ID, response)
 	//panic("UNIMPLEMENTED") //TODO
 }
 

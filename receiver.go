@@ -58,11 +58,11 @@ func (r *receiver) receiveLoop() error {
 		var frame []byte
 		if err := websocket.Message.Receive(r.conn, &frame); err != nil {
 			if err == io.EOF {
-				r.context.logFrame("receiveLoop stopped")
+				r.context.logFrame("[%s] receiveLoop stopped", r.context.ID)
 			} else if r.parseError != nil {
 				err = r.parseError
 			} else {
-				r.context.log("Error: receiveLoop exiting with WebSocket error: %v", err)
+				r.context.log("[%s] Error: receiveLoop exiting with WebSocket error: %v", r.context.ID, err)
 			}
 			close(r.channel)
 			return err
@@ -92,13 +92,13 @@ func (r *receiver) parseLoop() {
 			}
 		}
 	}
-	r.context.logFrame("parseLoop stopped")
+	r.context.logFrame("[%s] parseLoop stopped", r.context.ID)
 	returnDecompressor(r.frameDecoder)
 	r.frameDecoder = nil
 }
 
 func (r *receiver) fatalError(err error) {
-	r.context.log("Error: parseLoop closing socket due to error: %v", err)
+	r.context.log("[%s] Error: parseLoop closing socket due to error: %v", r.context.ID, err)
 	r.parseError = err
 	r.conn.Close()
 	//TODO: Should set a WebSocket close code/msg, but websocket.Conn has no API for that
@@ -132,7 +132,7 @@ func (r *receiver) handleIncomingFrame(frame []byte) error {
 		if n > 0 {
 			r.sender.receivedAck(requestNumber, msgType.ackSourceType(), bytesReceived)
 		} else {
-			r.context.log("Error reading ACK frame: %x", body)
+			r.context.log("[%s] Error reading ACK frame: %x", r.context.ID, body)
 		}
 		return nil
 
@@ -147,8 +147,8 @@ func (r *receiver) handleIncomingFrame(frame []byte) error {
 		r.frameBuffer.Truncate(r.frameBuffer.Len() - checksumLength)
 
 		if r.context.LogFrames {
-			r.context.logFrame("Received frame: %s (flags=%8b, length=%d)",
-				frameString(requestNumber, flags), flags, r.frameBuffer.Len())
+			r.context.logFrame("[%s] Received frame: %s (flags=%8b, length=%d)",
+				r.context.ID, frameString(requestNumber, flags), flags, r.frameBuffer.Len())
 		}
 
 		// Read/decompress the body of the frame:
@@ -159,8 +159,8 @@ func (r *receiver) handleIncomingFrame(frame []byte) error {
 			body, err = r.frameDecoder.passthrough(r.frameBuffer.Bytes(), &checksum)
 		}
 		if err != nil {
-			r.context.log("Error decompressing frame %s: %v. Raw frame = <%x>",
-				frameString(requestNumber, flags), err, frame)
+			r.context.log("[%s] Error decompressing frame %s: %v. Raw frame = <%x>",
+				r.context.ID, frameString(requestNumber, flags), err, frame)
 			return err
 		}
 
@@ -181,7 +181,7 @@ func (r *receiver) processFrame(requestNumber MessageNumber, flags frameFlags, f
 	case AckRequestType, AckResponseType:
 		break
 	default:
-		r.context.log("Warning: Ignoring incoming message type, with flags 0x%x", flags)
+		r.context.log("[%s] Warning: Ignoring incoming message type, with flags 0x%x", r.context.ID, flags)
 	}
 
 	// Write the decoded frame body to the stream:
@@ -190,7 +190,7 @@ func (r *receiver) processFrame(requestNumber MessageNumber, flags frameFlags, f
 			return err
 		} else if complete {
 			if err = msgStream.writer.Close(); err != nil {
-				r.context.log("Warning: message writer closed with error %v", err)
+				r.context.log("[%s] Warning: message writer closed with error %v", r.context.ID, err)
 			}
 		} else {
 			//FIX: This isn't the right place to do this, because this goroutine doesn't block even
@@ -244,7 +244,7 @@ func (r *receiver) getPendingResponse(requestNumber MessageNumber, flags frameFl
 			delete(r.pendingResponses, requestNumber)
 		}
 	} else if requestNumber <= r.maxPendingResponseNumber {
-		r.context.log("Warning: Unexpected response frame to my msg #%d", requestNumber) // benign
+		r.context.log("[%s] Warning: Unexpected response frame to my msg #%d", r.context.ID, requestNumber) // benign
 	} else {
 		err = fmt.Errorf("Bogus message number %d in response.  Expected to be less than max pending response number (%d)", requestNumber, r.maxPendingResponseNumber)
 	}
