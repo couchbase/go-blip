@@ -108,7 +108,7 @@ func (context *Context) WebSocketHandshake() WSHandshake {
 // Creates a WebSocket connection handler that dispatches BLIP messages to the Context.
 func (context *Context) WebSocketHandler() websocket.Handler {
 	return func(ws *websocket.Conn) {
-		context.log("Start BLIP/Websocket handler...")
+		context.log("Start BLIP/Websocket handler")
 		sender := context.start(ws)
 		err := sender.receiver.receiveLoop()
 		sender.Stop()
