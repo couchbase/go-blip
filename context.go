@@ -175,21 +175,18 @@ func (context *Context) dispatchResponse(response *Message) {
 //////// LOGGING:
 
 func (context *Context) log(format string, params ...interface{}) {
-	formatWithContextID, paramsWithContextID := context.PrependContextID(format, params...)
-	context.Logger(LogGeneral, formatWithContextID, paramsWithContextID...)
+	context.Logger(LogGeneral, format, params...)
 }
 
 func (context *Context) logMessage(format string, params ...interface{}) {
 	if context.LogMessages {
-		formatWithContextID, paramsWithContextID := context.PrependContextID(format, params...)
-		context.Logger(LogMessage, formatWithContextID, paramsWithContextID...)
+		context.Logger(LogMessage, format, params...)
 	}
 }
 
 func (context *Context) logFrame(format string, params ...interface{}) {
 	if context.LogFrames {
-		formatWithContextID, paramsWithContextID := context.PrependContextID(format, params...)
-		context.Logger(LogFrame, formatWithContextID, paramsWithContextID...)
+		context.Logger(LogFrame, format, params...)
 	}
 }
 
@@ -202,20 +199,6 @@ func includesProtocol(header string, protocol string) bool {
 	return false
 }
 
-// Prepend a context ID to each blip logging message.  The contextID uniquely identifies the blip context, and
-// is useful for grouping the blip connections in the log output.
-func (context *Context) PrependContextID(format string, params ...interface{}) (newFormat string, newParams []interface{}) {
-
-	// Add a new format placeholder for the context ID, which should appear at the beginning of the logs
-	formatWithContextID := `[%s] ` + format
-
-	paramsWithContextID := []interface{}{context.ID}
-	if len(params) > 0 {
-		paramsWithContextID = append(paramsWithContextID, params...)
-	}
-	return formatWithContextID, paramsWithContextID
-
-}
 
 //  Copyright (c) 2013 Jens Alfke. Copyright (c) 2015-2017 Couchbase, Inc.
 //  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file
