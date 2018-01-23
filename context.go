@@ -148,7 +148,7 @@ func (context *Context) dispatchRequest(request *Message, sender *Sender) {
 		}
 	}()
 
-	context.logMessage("INCOMING REQUEST: %s", request)
+	context.logMessage("Incoming BLIP Request: %s", request)
 	handler := context.HandlerForProfile[request.Properties["Profile"]]
 	if handler == nil {
 		handler = context.DefaultHandler
@@ -168,27 +168,27 @@ func (context *Context) dispatchResponse(response *Message) {
 		}
 	}()
 
-	context.logMessage("INCOMING RESPONSE: %s", response)
+	context.logMessage("Incoming BLIP Response: %s", response)
 	//panic("UNIMPLEMENTED") //TODO
 }
 
 //////// LOGGING:
 
 func (context *Context) log(format string, params ...interface{}) {
-	formatWithContextID, paramsWithContextID := context.prependContextID(format, params...)
+	formatWithContextID, paramsWithContextID := context.PrependContextID(format, params...)
 	context.Logger(LogGeneral, formatWithContextID, paramsWithContextID...)
 }
 
 func (context *Context) logMessage(format string, params ...interface{}) {
 	if context.LogMessages {
-		formatWithContextID, paramsWithContextID := context.prependContextID(format, params...)
+		formatWithContextID, paramsWithContextID := context.PrependContextID(format, params...)
 		context.Logger(LogMessage, formatWithContextID, paramsWithContextID...)
 	}
 }
 
 func (context *Context) logFrame(format string, params ...interface{}) {
 	if context.LogFrames {
-		formatWithContextID, paramsWithContextID := context.prependContextID(format, params...)
+		formatWithContextID, paramsWithContextID := context.PrependContextID(format, params...)
 		context.Logger(LogFrame, formatWithContextID, paramsWithContextID...)
 	}
 }
@@ -204,7 +204,7 @@ func includesProtocol(header string, protocol string) bool {
 
 // Prepend a context ID to each blip logging message.  The contextID uniquely identifies the blip context, and
 // is useful for grouping the blip connections in the log output.
-func (context *Context) prependContextID(format string, params ...interface{}) (newFormat string, newParams []interface{}) {
+func (context *Context) PrependContextID(format string, params ...interface{}) (newFormat string, newParams []interface{}) {
 
 	// Add a new format placeholder for the context ID, which should appear at the beginning of the logs
 	formatWithContextID := `[%s] ` + format
