@@ -7,6 +7,8 @@ import (
 	"runtime/debug"
 	"strings"
 
+	"math/rand"
+
 	"golang.org/x/net/websocket"
 )
 
@@ -30,6 +32,9 @@ type Context struct {
 	Logger            LogFn              // Logging callback; defaults to log.Printf
 	LogMessages       bool               // If true, will log about messages
 	LogFrames         bool               // If true, will log about frames (very verbose)
+
+	// An identifier that uniquely defines the context.  NOTE: Random Number Generator not seeded by go-blip.
+	ID string
 }
 
 // Defines a logging interface for use within the blip codebase.  Implemented by Context.
@@ -47,6 +52,7 @@ func NewContext() *Context {
 	return &Context{
 		HandlerForProfile: map[string]Handler{},
 		Logger:            logPrintfWrapper(),
+		ID:                fmt.Sprintf("%x", rand.Int63()),
 	}
 }
 
@@ -168,19 +174,22 @@ func (context *Context) dispatchResponse(response *Message) {
 
 //////// LOGGING:
 
-func (context *Context) log(fmt string, params ...interface{}) {
-	context.Logger(LogGeneral, fmt, params...)
+func (context *Context) log(format string, params ...interface{}) {
+	formatWithContextID, paramsWithContextID := context.prependContextID(format, params...)
+	context.Logger(LogGeneral, formatWithContextID, paramsWithContextID...)
 }
 
-func (context *Context) logMessage(fmt string, params ...interface{}) {
+func (context *Context) logMessage(format string, params ...interface{}) {
 	if context.LogMessages {
-		context.Logger(LogMessage, fmt, params...)
+		formatWithContextID, paramsWithContextID := context.prependContextID(format, params...)
+		context.Logger(LogMessage, formatWithContextID, paramsWithContextID...)
 	}
 }
 
-func (context *Context) logFrame(fmt string, params ...interface{}) {
+func (context *Context) logFrame(format string, params ...interface{}) {
 	if context.LogFrames {
-		context.Logger(LogFrame, fmt, params...)
+		formatWithContextID, paramsWithContextID := context.prependContextID(format, params...)
+		context.Logger(LogFrame, formatWithContextID, paramsWithContextID...)
 	}
 }
 
@@ -191,6 +200,21 @@ func includesProtocol(header string, protocol string) bool {
 		}
 	}
 	return false
+}
+
+// Prepend a context ID to each blip logging message.  The contextID uniquely identifies the blip context, and
+// is useful for grouping the blip connections in the log output.
+func (context *Context) prependContextID(format string, params ...interface{}) (newFormat string, newParams []interface{}) {
+
+	// Add a new format placeholder for the context ID, which should appear at the beginning of the logs
+	formatWithContextID := `[%s] ` + format
+
+	paramsWithContextID := []interface{}{context.ID}
+	if len(params) > 0 {
+		paramsWithContextID = append(paramsWithContextID, params...)
+	}
+	return formatWithContextID, paramsWithContextID
+
 }
 
 //  Copyright (c) 2013 Jens Alfke. Copyright (c) 2015-2017 Couchbase, Inc.
