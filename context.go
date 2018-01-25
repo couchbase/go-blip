@@ -3,6 +3,7 @@ package blip
 import (
 	"fmt"
 	"io"
+	"math/rand"
 	"net/http"
 	"runtime/debug"
 	"strings"
@@ -30,6 +31,9 @@ type Context struct {
 	Logger            LogFn              // Logging callback; defaults to log.Printf
 	LogMessages       bool               // If true, will log about messages
 	LogFrames         bool               // If true, will log about frames (very verbose)
+
+	// An identifier that uniquely defines the context.  NOTE: Random Number Generator not seeded by go-blip.
+	ID string
 }
 
 // Defines a logging interface for use within the blip codebase.  Implemented by Context.
@@ -47,6 +51,7 @@ func NewContext() *Context {
 	return &Context{
 		HandlerForProfile: map[string]Handler{},
 		Logger:            logPrintfWrapper(),
+		ID:                fmt.Sprintf("%x", rand.Int31()),
 	}
 }
 
@@ -102,7 +107,7 @@ func (context *Context) WebSocketHandshake() WSHandshake {
 // Creates a WebSocket connection handler that dispatches BLIP messages to the Context.
 func (context *Context) WebSocketHandler() websocket.Handler {
 	return func(ws *websocket.Conn) {
-		context.log("Start BLIP/Websocket handler...")
+		context.log("Start BLIP/Websocket handler")
 		sender := context.start(ws)
 		err := sender.receiver.receiveLoop()
 		sender.Stop()
@@ -142,7 +147,7 @@ func (context *Context) dispatchRequest(request *Message, sender *Sender) {
 		}
 	}()
 
-	context.logMessage("INCOMING REQUEST: %s", request)
+	context.logMessage("Incoming BLIP Request: %s", request)
 	handler := context.HandlerForProfile[request.Properties["Profile"]]
 	if handler == nil {
 		handler = context.DefaultHandler
@@ -162,25 +167,25 @@ func (context *Context) dispatchResponse(response *Message) {
 		}
 	}()
 
-	context.logMessage("INCOMING RESPONSE: %s", response)
+	context.logMessage("Incoming BLIP Response: %s", response)
 	//panic("UNIMPLEMENTED") //TODO
 }
 
 //////// LOGGING:
 
-func (context *Context) log(fmt string, params ...interface{}) {
-	context.Logger(LogGeneral, fmt, params...)
+func (context *Context) log(format string, params ...interface{}) {
+	context.Logger(LogGeneral, format, params...)
 }
 
-func (context *Context) logMessage(fmt string, params ...interface{}) {
+func (context *Context) logMessage(format string, params ...interface{}) {
 	if context.LogMessages {
-		context.Logger(LogMessage, fmt, params...)
+		context.Logger(LogMessage, format, params...)
 	}
 }
 
-func (context *Context) logFrame(fmt string, params ...interface{}) {
+func (context *Context) logFrame(format string, params ...interface{}) {
 	if context.LogFrames {
-		context.Logger(LogFrame, fmt, params...)
+		context.Logger(LogFrame, format, params...)
 	}
 }
 

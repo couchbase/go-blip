@@ -110,7 +110,7 @@ func (sender *Sender) start() {
 			}
 		}()
 
-		sender.context.logFrame("Sender starting...")
+		sender.context.logFrame("Sender starting")
 		frameBuffer := bytes.NewBuffer(make([]byte, 0, kBigFrameSize))
 		frameEncoder := getCompressor(frameBuffer)
 		for {
