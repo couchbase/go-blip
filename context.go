@@ -52,7 +52,7 @@ func NewContext() *Context {
 	return &Context{
 		HandlerForProfile: map[string]Handler{},
 		Logger:            logPrintfWrapper(),
-		ID:                fmt.Sprintf("%x", rand.Int63()),
+		ID:                fmt.Sprintf("%x", rand.Int31()),
 	}
 }
 
@@ -198,7 +198,6 @@ func includesProtocol(header string, protocol string) bool {
 	}
 	return false
 }
-
 
 //  Copyright (c) 2013 Jens Alfke. Copyright (c) 2015-2017 Couchbase, Inc.
 //  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file
