@@ -3,11 +3,10 @@ package blip
 import (
 	"fmt"
 	"io"
+	"math/rand"
 	"net/http"
 	"runtime/debug"
 	"strings"
-
-	"math/rand"
 
 	"golang.org/x/net/websocket"
 )
@@ -198,7 +197,6 @@ func includesProtocol(header string, protocol string) bool {
 	}
 	return false
 }
-
 
 //  Copyright (c) 2013 Jens Alfke. Copyright (c) 2015-2017 Couchbase, Inc.
 //  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file
