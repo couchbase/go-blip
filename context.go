@@ -199,6 +199,7 @@ func includesProtocol(header string, protocol string) bool {
 	return false
 }
 
+
 //  Copyright (c) 2013 Jens Alfke. Copyright (c) 2015-2017 Couchbase, Inc.
 //  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file
 //  except in compliance with the License. You may obtain a copy of the License at
