@@ -3,7 +3,6 @@ package blip
 import (
 	"fmt"
 	"log"
-	"math/rand"
 	"net/http"
 	"sync"
 	"testing"
@@ -20,30 +19,28 @@ import (
 //
 // Test:
 //
-// - Start two blip contexts
-// - Start ping-pong message between them
-// - One side abruptly closes connection
-// - Verify the other side is not stuck indefinitely
+// - Start two blip contexts: an echo server and an echo client
+// - The echo server is configured to respond to incoming echo requests and return responses, with the twist
+//       that it abruptly terminates websocket before returning from callback
+// - The echo client tries to read the response after sending the request
+// - Expected: the echo client should receive some sort of error when trying to read the response, since the server abruptly terminated the connection
+// - Actual: the echo client blocks indefinitely trying to read the response
 //
 func TestAbruptlyCloseConnectionBehavior(t *testing.T) {
 
-	blipContext := NewContext()
+	blipContextEchoServer := NewContext()
 
 	receivedRequests := sync.WaitGroup{}
-	beforeRespondedReqeust := sync.WaitGroup{}
 
+	// ----------------- Setup Echo Server that abruptly terminates socket -------------------------
+
+	// Create a blip profile handler to respond to echo requests and then abruptly close the socket
 	dispatchEcho := func(request *Message) {
 		defer receivedRequests.Done()
-		beforeRespondedReqeust.Done()
 		body, err := request.Body()
 		if err != nil {
 			log.Printf("ERROR reading body of %s: %s", request, err)
 			return
-		}
-		for i, b := range body {
-			if b != byte(i%256) {
-				panic(fmt.Sprintf("Incorrect body: %x", body))
-			}
 		}
 		if request.Properties["Content-Type"] != "application/octet-stream" {
 			panic(fmt.Sprintf("Incorrect properties: %#x", request.Properties))
@@ -53,16 +50,18 @@ func TestAbruptlyCloseConnectionBehavior(t *testing.T) {
 			response.Properties["Content-Type"] = request.Properties["Content-Type"]
 		}
 
-		// Try closing the connection
+		// Try closing the connection to simulate behavior seen in SG #3268
 		request.Sender.conn.Close()
+
 	}
 
-	blipContext.HandlerForProfile["BLIPTest/EchoData"] = dispatchEcho
-	blipContext.LogMessages = true
-	blipContext.LogFrames = true
+	// Blip setup
+	blipContextEchoServer.HandlerForProfile["BLIPTest/EchoData"] = dispatchEcho
+	blipContextEchoServer.LogMessages = true
+	blipContextEchoServer.LogFrames = true
 
-	// Server
-	server := blipContext.WebSocketServer()
+	// Websocket Server
+	server := blipContextEchoServer.WebSocketServer()
 	defaultHandler := server.Handler
 	server.Handler = func(conn *websocket.Conn) {
 		defer func() {
@@ -71,66 +70,40 @@ func TestAbruptlyCloseConnectionBehavior(t *testing.T) {
 		defaultHandler(conn)
 	}
 
+	// HTTP Handler wrapping websocket server
 	http.Handle("/blip", defaultHandler)
-
 	go func() {
 		log.Fatal(http.ListenAndServe(":12345", nil))
 	}()
 
-	context := NewContext()
-	sender, err := context.Dial("ws://localhost:12345/blip", "http://localhost")
+	// ----------------- Setup Echo Client ----------------------------------------
+
+	blipContextEchoClient := NewContext()
+	sender, err := blipContextEchoClient.Dial("ws://localhost:12345/blip", "http://localhost")
 	if err != nil {
 		panic("Error opening WebSocket: " + err.Error())
 	}
 
-	request := NewRequest()
-	request.SetProfile("BLIPTest/EchoData")
-	request.Properties["Content-Type"] = "application/octet-stream"
-	body := make([]byte, rand.Intn(1024))
-	for i := 0; i < len(body); i++ {
-		body[i] = byte(i % 256)
-	}
-	request.SetBody(body)
+	// Create echo request
+	echoRequest := NewRequest()
+	echoRequest.SetProfile("BLIPTest/EchoData")
+	echoRequest.Properties["Content-Type"] = "application/octet-stream"
+	echoRequest.SetBody([]byte("hello"))
 	receivedRequests.Add(1)
-	beforeRespondedReqeust.Add(1)
-	sent := sender.Send(request)
+
+	// Send echo request
+	sent := sender.Send(echoRequest)
 	assert.True(t, sent)
 
-	// close connection from sender side after handler received request, but before responded
-	//beforeRespondedReqeust.Wait()
-	//sender.conn.Close()
-
-	log.Printf("sent request")
-
+	// Wait until the echo server profile handler was invoked and completely finished (and thus abruptly closed socket)
 	receivedRequests.Wait()
 
-	log.Printf("reading response")
-	response := request.Response()
-	log.Printf("reading response body")
+	// Read the echo response
+	response := echoRequest.Response()   // <-- blocks indefinitely here.
 	responseBody, err := response.Body()
-	log.Printf("read response + body")
 
+	// Assertions about echo response (these might need to be altered, maybe what's expected in this scenario is actually an error)
 	assert.True(t, err == nil)
-	log.Printf("responseBody: %s", responseBody)
+	assert.Equals(t, responseBody, []byte("hello"))
 
 }
-
-//func dispatchEcho(request *Message) {
-//	body, err := request.Body()
-//	if err != nil {
-//		log.Printf("ERROR reading body of %s: %s", request, err)
-//		return
-//	}
-//	for i, b := range body {
-//		if b != byte(i%256) {
-//			panic(fmt.Sprintf("Incorrect body: %x", body))
-//		}
-//	}
-//	if request.Properties["Content-Type"] != "application/octet-stream" {
-//		panic(fmt.Sprintf("Incorrect properties: %#x", request.Properties))
-//	}
-//	if response := request.Response(); response != nil {
-//		response.SetBody(body)
-//		response.Properties["Content-Type"] = request.Properties["Content-Type"]
-//	}
-//}
