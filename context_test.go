@@ -1,14 +1,15 @@
 package blip
 
 import (
-	"testing"
-	"log"
 	"fmt"
-	"golang.org/x/net/websocket"
-	"net/http"
+	"log"
 	"math/rand"
-	"github.com/couchbaselabs/go.assert"
+	"net/http"
 	"sync"
+	"testing"
+
+	"github.com/couchbaselabs/go.assert"
+	"golang.org/x/net/websocket"
 )
 
 // This was added in reaction to https://github.com/couchbase/sync_gateway/issues/3268 to either
@@ -29,9 +30,11 @@ func TestAbruptlyCloseConnectionBehavior(t *testing.T) {
 	blipContext := NewContext()
 
 	receivedRequests := sync.WaitGroup{}
+	beforeRespondedReqeust := sync.WaitGroup{}
 
 	dispatchEcho := func(request *Message) {
 		defer receivedRequests.Done()
+		beforeRespondedReqeust.Done()
 		body, err := request.Body()
 		if err != nil {
 			log.Printf("ERROR reading body of %s: %s", request, err)
@@ -49,13 +52,14 @@ func TestAbruptlyCloseConnectionBehavior(t *testing.T) {
 			response.SetBody(body)
 			response.Properties["Content-Type"] = request.Properties["Content-Type"]
 		}
-	}
 
+		// Try closing the connection
+		request.Sender.conn.Close()
+	}
 
 	blipContext.HandlerForProfile["BLIPTest/EchoData"] = dispatchEcho
 	blipContext.LogMessages = true
 	blipContext.LogFrames = true
-
 
 	// Server
 	server := blipContext.WebSocketServer()
@@ -88,16 +92,28 @@ func TestAbruptlyCloseConnectionBehavior(t *testing.T) {
 	}
 	request.SetBody(body)
 	receivedRequests.Add(1)
+	beforeRespondedReqeust.Add(1)
 	sent := sender.Send(request)
 	assert.True(t, sent)
+
+	// close connection from sender side after handler received request, but before responded
+	//beforeRespondedReqeust.Wait()
+	//sender.conn.Close()
 
 	log.Printf("sent request")
 
 	receivedRequests.Wait()
 
+	log.Printf("reading response")
+	response := request.Response()
+	log.Printf("reading response body")
+	responseBody, err := response.Body()
+	log.Printf("read response + body")
+
+	assert.True(t, err == nil)
+	log.Printf("responseBody: %s", responseBody)
 
 }
-
 
 //func dispatchEcho(request *Message) {
 //	body, err := request.Body()
