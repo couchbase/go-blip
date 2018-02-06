@@ -144,8 +144,13 @@ func (q *messageQueue) stop() {
 	q.cond.L.Lock()
 	defer q.cond.L.Unlock()
 
+	// TODO: iterate over messages and call close on every message's reader
+	// TODO: each message needs to be a readcloser
+
 	q.queue = nil
 	q.cond.Broadcast()
+
+
 }
 
 func (q *messageQueue) nextMessageIsUrgent() bool {
