@@ -78,6 +78,7 @@ func (sender *Sender) send(msg *Message) bool {
 		if prePushMsg.Type() == RequestType && !prePushMsg.NoReply() {
 			response := prePushMsg.createResponse()
 			writer := response.asyncRead(func(err error) {
+				// TODO: the error passed into this callback is currently being ignored.  Calling response.SetError() causes: "panic: Message can't be modified"
 				prePushMsg.responseComplete(response)
 			})
 			sender.receiver.awaitResponse(response, writer)
@@ -97,6 +98,14 @@ func (sender *Sender) Backlog() (incomingRequests, incomingResponses, outgoingRe
 // Stops the sender's goroutine.
 func (sender *Sender) Stop() {
 	sender.queue.stop()
+
+	for _, msgStreamer := range sender.receiver.pendingResponses {
+		err := msgStreamer.writer.Close()
+		if err != nil {
+			sender.context.logMessage("Warning: error closing msgStreamer writer in pending responses while stopping sender: %v", err)
+		}
+	}
+
 }
 
 func (sender *Sender) Close() {
