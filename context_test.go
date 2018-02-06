@@ -174,16 +174,12 @@ func TestClientAbruptlyCloseConnectionBehavior(t *testing.T) {
 		echoAmplifyRequest.SetBody([]byte("hello"))
 		sent := clientSender.Send(echoAmplifyRequest)
 		assert.True(t, sent)
-		echoAmplifyResponse := echoAmplifyRequest.Response()
-		echoAmplifyResponseBody, err := echoAmplifyResponse.Body()
-
-		log.Printf("echoAmplifyResponse.Body() err: %+v", err)
-		log.Printf("echoAmplifyResponse.Body(): %s", echoAmplifyResponseBody)
-
+		echoAmplifyResponse := echoAmplifyRequest.Response()  // <--- blocks indefinitely
+		_, err := echoAmplifyResponse.Body()
 
 		// since the test will end abruptly close socket before sending a response, the expected behavior
 		// is return an error (as opposed to calling Body() blocking forever)
-		// assert.True(t, err != nil)
+		assert.True(t, err != nil)
 
 	}
 
