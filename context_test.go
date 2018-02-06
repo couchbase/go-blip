@@ -118,8 +118,10 @@ to be answered is:
 - If the client side abruptly closes a connection during a pending server request that requires a response,
 will the server side goroutine trying to read the response be blocked indefinitely?
 
-The test does the following steps.  After writing the initial test, I've realized that the initial
-Echo Request and Echo Response are probably unnecessary, but I'm leaving them in for now.
+The initial Echo Request and Echo Response might be unnecessary -- it was used to provide a way for the server
+to issue an outbound request to a client.  Is there a simpler way?
+
+The test does the following steps:
 
 
 ┌─────────────────────────────┐                                  ┌─────────────────────────────┐
