@@ -144,8 +144,15 @@ func (q *messageQueue) stop() {
 	q.cond.L.Lock()
 	defer q.cond.L.Unlock()
 
-	// TODO: iterate over messages and call close on every message's reader
-	// TODO: each message needs to be a readcloser
+
+	// Iterate over messages and call close on every message's readcloser, otherwise
+	// anything blocked in a Read() call on this reader will block indefinitely (SG #3268)
+	for _, message := range q.queue {
+		err := message.reader.Close()
+		if err != nil {
+			q.logContext.logMessage("Warning: messageQueue encountered error closing message reader while stopping. Error: %v", err)
+		}
+	}
 
 	q.queue = nil
 	q.cond.Broadcast()

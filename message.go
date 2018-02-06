@@ -25,13 +25,13 @@ type Message struct {
 	bytesSent  uint64
 	bytesAcked uint64
 
-	reader       io.Reader  // Stream that an incoming message is being read from
-	encoder      io.Reader  // Stream that an outgoing message is being written to
-	readingBody  bool       // True if reader stream has been accessed by client already
-	complete     bool       // Has this message been completely received?
-	response     *Message   // Response to this message, if it's a request
-	inResponseTo *Message   // Message this is a response to
-	cond         *sync.Cond // Used to make Response() method block until response arrives
+	reader       io.ReadCloser // Stream that an incoming message is being read from
+	encoder      io.Reader     // Stream that an outgoing message is being written to
+	readingBody  bool          // True if reader stream has been accessed by client already
+	complete     bool          // Has this message been completely received?
+	response     *Message      // Response to this message, if it's a request
+	inResponseTo *Message      // Message this is a response to
+	cond         *sync.Cond    // Used to make Response() method block until response arrives
 }
 
 // Returns a string describing the message for debugging purposes
@@ -249,7 +249,7 @@ func (response *Message) SetError(errDomain string, errCode int, message string)
 
 //////// INTERNALS:
 
-func newIncomingMessage(sender *Sender, number MessageNumber, flags frameFlags, reader io.Reader) *Message {
+func newIncomingMessage(sender *Sender, number MessageNumber, flags frameFlags, reader io.ReadCloser) *Message {
 	return &Message{
 		Sender: sender,
 		flags:  flags | kMoreComing,
