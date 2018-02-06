@@ -113,6 +113,8 @@ func (sender *Sender) start() {
 				log.Printf("PANIC in BLIP sender: %v\n%s", panicked, debug.Stack())
 			}
 		}()
+		incrSenderGoroutines()
+		defer decrSenderGoroutines()
 
 		sender.context.logFrame("Sender starting")
 		frameBuffer := bytes.NewBuffer(make([]byte, 0, kBigFrameSize))

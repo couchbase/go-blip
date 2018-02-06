@@ -85,6 +85,8 @@ func (context *Context) DialConfig(config *websocket.Config) (*Sender, error) {
 	}
 	sender := context.start(ws)
 	go func() {
+		defer decrReceiverGoroutines()
+		incrReceiverGoroutines()
 		err := sender.receiver.receiveLoop()
 		if err != nil {
 			context.log("BLIP/Websocket receiveLoop exited: %v", err)

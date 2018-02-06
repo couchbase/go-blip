@@ -73,8 +73,8 @@ func (r *receiver) receiveLoop() error {
 }
 
 func (r *receiver) parseLoop() {
-	// Panic handler:
-	defer func() {
+	defer decrParseLoopGoroutines()
+	defer func() { // Panic handler:
 		if p := recover(); p != nil {
 			log.Printf("PANIC in BLIP parseLoop: %v\n%s", p, debug.Stack())
 			err, _ := p.(error)
@@ -85,6 +85,8 @@ func (r *receiver) parseLoop() {
 		}
 	}()
 
+	incrParseLoopGoroutines()
+	
 	for frame := range r.channel {
 		if r.parseError == nil {
 			if err := r.handleIncomingFrame(frame); err != nil {

@@ -325,6 +325,7 @@ func (m *Message) asyncRead(onComplete func(error)) io.WriteCloser {
 	reader, writer := io.Pipe()
 	m.reader = reader
 	go func() {
+		defer decrAsyncReadGoroutines()
 		defer func() {
 			if p := recover(); p != nil {
 				err := fmt.Sprintf("PANIC in BLIP asyncRead: %v", p)
@@ -333,6 +334,7 @@ func (m *Message) asyncRead(onComplete func(error)) io.WriteCloser {
 			}
 		}()
 
+		incrAsyncReadGoroutines()
 		err := m.ReadFrom(reader)
 		onComplete(err)
 	}()
@@ -349,14 +351,17 @@ func (m *Message) nextFrameToSend(maxSize int) ([]byte, frameFlags) {
 		var writer io.WriteCloser
 		m.encoder, writer = io.Pipe()
 		go func() {
+			defer decrNextFrameToSendGoroutines()
 			defer func() {
 				if p := recover(); p != nil {
 					log.Printf("PANIC in BLIP nextFrameToSend: %v\n%s", p, debug.Stack())
 				}
 			}()
-
 			defer writer.Close()
+
+			incrNextFrameToSendGoroutines()
 			_ = m.WriteTo(writer)
+
 		}()
 	}
 
