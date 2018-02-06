@@ -261,7 +261,7 @@ func TestClientAbruptlyCloseConnectionBehavior(t *testing.T) {
 	receivedEchoRequest.Wait()
 
 	// Read the echo response
-	response := echoRequest.Response()   // <-- blocks indefinitely here.
+	response := echoRequest.Response()   
 	responseBody, err := response.Body()
 
 	// Assertions about echo response (these might need to be altered, maybe what's expected in this scenario is actually an error)
