@@ -145,8 +145,9 @@ func (q *messageQueue) stop() {
 	defer q.cond.L.Unlock()
 
 
-	// Iterate over messages and call close on every message's readcloser, otherwise
-	// anything blocked in a Read() call on this reader will block indefinitely (SG #3268)
+	// Iterate over messages and call close on every message's readcloser, since it's possible that
+	// a goroutine may be blocked on the reader, thus causing a resource leak.  Added during SG #3268
+	// diagnosis, but does not fix any reproducible issues.
 	for _, message := range q.queue {
 		err := message.reader.Close()
 		if err != nil {
