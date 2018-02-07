@@ -69,6 +69,8 @@ func (sender *Sender) send(msg *Message) bool {
 	}
 	msg.Sender = sender
 
+	sender.queue.assignMessageNumber(msg)
+
 	if msg.Type() == RequestType && !msg.NoReply() {
 		response := msg.createResponse()
 
@@ -87,7 +89,6 @@ func (sender *Sender) send(msg *Message) bool {
 	if !sender.queue.push(msg) {
 		return false
 	}
-
 
 	return true
 }

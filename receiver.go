@@ -264,6 +264,7 @@ func (r *receiver) awaitResponse(request *Message, writer io.WriteCloser) {
 	if number > r.maxPendingResponseNumber {
 		r.maxPendingResponseNumber = number
 	}
+	r.context.logMessage("receiver set maxPendingResponseNumber to %d", r.maxPendingResponseNumber)
 }
 
 func (r *receiver) backlog() (pendingRequest, pendingResponses int) {

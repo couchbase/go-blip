@@ -18,6 +18,7 @@ func TestMessagePushPop(t *testing.T) {
 	// Push a non-urgent message into the queue
 	for i := 0; i < 2; i++ {
 		msg := NewRequest()
+		mq.assignMessageNumber(msg)
 		pushed := mq.push(msg)
 		assert.True(t, pushed)
 		assert.False(t, mq.nextMessageIsUrgent())
@@ -29,6 +30,7 @@ func TestMessagePushPop(t *testing.T) {
 	// Push an urgent message into the queue
 	urgentMsg := NewRequest()
 	urgentMsg.SetUrgent(true)
+	mq.assignMessageNumber(urgentMsg)
 	pushed := mq.push(urgentMsg)
 	assert.True(t, pushed)
 
@@ -68,6 +70,7 @@ func TestConcurrentAccess(t *testing.T) {
 	// Fill it up to capacity w/ normal messages
 	for i := 0; i < maxSendQueueCount; i++ {
 		msg := NewRequest()
+		mq.assignMessageNumber(msg)
 		pushed := mq.push(msg)
 		assert.True(t, pushed)
 		assert.False(t, mq.nextMessageIsUrgent())
@@ -78,6 +81,7 @@ func TestConcurrentAccess(t *testing.T) {
 	pusher := func() {
 		for i := 0; i < 100; i++ {
 			msg := NewRequest()
+			mq.assignMessageNumber(msg)
 			pushed := mq.push(msg)
 			assert.True(t, pushed)
 		}
@@ -141,6 +145,7 @@ func TestUrgentMessageOrdering(t *testing.T) { // Test passes, but some assertio
 	// Add normal messages that are "in-progress" since they have a non-nil msg.encoder
 	for i := 0; i < 5; i++ {
 		msg := NewRequest()
+		mq.assignMessageNumber(msg)
 		pushed := mq.push(msg)
 		assert.True(t, pushed)
 		assert.False(t, mq.nextMessageIsUrgent())
@@ -156,6 +161,7 @@ func TestUrgentMessageOrdering(t *testing.T) { // Test passes, but some assertio
 	// Push an urgent message into the queue
 	urgentMsg := NewRequest()
 	urgentMsg.SetUrgent(true)
+	mq.assignMessageNumber(urgentMsg)
 	pushed := mq.push(urgentMsg)
 	assert.True(t, pushed)
 
@@ -180,6 +186,7 @@ func TestUrgentMessageOrdering(t *testing.T) { // Test passes, but some assertio
 	// T7: [n5] [n4] [n3] [u7] [n2] [u6]
 	anotherUrgentMsg := NewRequest()
 	anotherUrgentMsg.SetUrgent(true)
+	mq.assignMessageNumber(anotherUrgentMsg)
 	pushed = mq.push(anotherUrgentMsg)
 	assert.True(t, pushed)
 

@@ -2,6 +2,7 @@ package blip
 
 import (
 	"sync"
+	"fmt"
 )
 
 const kInitialQueueCapacity = 10
@@ -70,9 +71,22 @@ func (q *messageQueue) _push(msg *Message, new bool) bool { // requires lock
 	return true
 }
 
+func (q *messageQueue) assignMessageNumber(msg *Message) {
+	q.cond.L.Lock()
+	defer q.cond.L.Unlock()
+	q.numRequestsSent++
+	msg.number = q.numRequestsSent
+}
+
+// Push a message into the queue.  You must call q.assignMessageNumber() on the message before calling this,
+// otherwise it will panic
 func (q *messageQueue) push(msg *Message) bool {
 	q.cond.L.Lock()
 	defer q.cond.L.Unlock()
+
+	if msg.number == 0 {
+		panic(fmt.Sprintf("messageQueue called with message that has not yet been assigned a message number: %+v", msg))
+	}
 
 	isNew := msg.number == 0
 	if isNew {
@@ -84,8 +98,6 @@ func (q *messageQueue) push(msg *Message) bool {
 		if msg.Type() != RequestType {
 			panic("Response has no number")
 		}
-		q.numRequestsSent++
-		msg.number = q.numRequestsSent
 		q.logContext.logMessage("Queued %s", msg)
 	}
 
