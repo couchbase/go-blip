@@ -69,17 +69,26 @@ func (sender *Sender) send(msg *Message) bool {
 	}
 	msg.Sender = sender
 
-	if !sender.queue.push(msg) {
-		return false
-	}
-
 	if msg.Type() == RequestType && !msg.NoReply() {
 		response := msg.createResponse()
+
+		// TODO: is this racey?  Eg, can the async read happen before awaitResponse has a chance to put an entry
+		// TODO: into pending responses?
+
+		// TODO: or another race .. since it's putting on the queue in an async fashion, what if
+		// TODO: this gets pushed onto the sending queue and then the response comes in BEFORE await response is even called?
+
 		writer := response.asyncRead(func(err error) {
 			msg.responseComplete(response)
 		})
 		sender.receiver.awaitResponse(response, writer)
 	}
+
+	if !sender.queue.push(msg) {
+		return false
+	}
+
+
 	return true
 }
 
