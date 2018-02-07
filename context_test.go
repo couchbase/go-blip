@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/couchbaselabs/go.assert"
 	"golang.org/x/net/websocket"
@@ -73,7 +74,7 @@ func TestServerAbruptlyCloseConnectionBehavior(t *testing.T) {
 	// HTTP Handler wrapping websocket server
 	http.Handle("/blip", defaultHandler)
 	go func() {
-		log.Fatal(http.ListenAndServe(":12345", nil))  // TODO: use dynamic port
+		log.Fatal(http.ListenAndServe(":12345", nil)) // TODO: use dynamic port
 	}()
 
 	// ----------------- Setup Echo Client ----------------------------------------
@@ -96,10 +97,10 @@ func TestServerAbruptlyCloseConnectionBehavior(t *testing.T) {
 	assert.True(t, sent)
 
 	// Wait until the echo server profile handler was invoked and completely finished (and thus abruptly closed socket)
-	receivedRequests.Wait()
+	WaitWithTimeout(&receivedRequests, time.Second*60)
 
 	// Read the echo response
-	response := echoRequest.Response()   // <--- SG #3268 was causing this to block indefinitely
+	response := echoRequest.Response() // <--- SG #3268 was causing this to block indefinitely
 	responseBody, err := response.Body()
 
 	// Assertions about echo response (these might need to be altered, maybe what's expected in this scenario is actually an error)
@@ -110,7 +111,6 @@ func TestServerAbruptlyCloseConnectionBehavior(t *testing.T) {
 	// TODO: way to differentiate this response with a normal response other than having an empty body
 
 }
-
 
 /*
 
@@ -155,7 +155,7 @@ The test does the following steps:
                │                                                                │
                ▼                                                                ▼
 
- */
+*/
 func TestClientAbruptlyCloseConnectionBehavior(t *testing.T) {
 
 	blipContextEchoServer := NewContext()
@@ -177,7 +177,7 @@ func TestClientAbruptlyCloseConnectionBehavior(t *testing.T) {
 		echoAmplifyRequest.SetBody([]byte("hello"))
 		sent := clientSender.Send(echoAmplifyRequest)
 		assert.True(t, sent)
-		echoAmplifyResponse := echoAmplifyRequest.Response()  // <--- SG #3268 was causing this to block indefinitely
+		echoAmplifyResponse := echoAmplifyRequest.Response() // <--- SG #3268 was causing this to block indefinitely
 		echoAmplifyResponseBody, _ := echoAmplifyResponse.Body()
 		assert.True(t, len(echoAmplifyResponseBody) == 0)
 
@@ -225,7 +225,7 @@ func TestClientAbruptlyCloseConnectionBehavior(t *testing.T) {
 	// HTTP Handler wrapping websocket server
 	http.Handle("/blip", defaultHandler)
 	go func() {
-		log.Fatal(http.ListenAndServe(":12345", nil))  // TODO: use dynamic port
+		log.Fatal(http.ListenAndServe(":12345", nil)) // TODO: use dynamic port
 	}()
 
 	// ----------------- Setup Echo Client ----------------------------------------
@@ -261,7 +261,7 @@ func TestClientAbruptlyCloseConnectionBehavior(t *testing.T) {
 	assert.True(t, sent)
 
 	// Wait until the echo server profile handler was invoked and completely finished (and thus abruptly closed socket)
-	receivedEchoRequest.Wait()
+	WaitWithTimeout(&receivedEchoRequest, time.Second*60)
 
 	// Read the echo response
 	response := echoRequest.Response()
@@ -272,6 +272,27 @@ func TestClientAbruptlyCloseConnectionBehavior(t *testing.T) {
 	assert.Equals(t, string(responseBody), "hello")
 
 	// Wait until the amplify request was received by client (from server), and that the server read the response
-	echoAmplifyRoundTripComplete.Wait()
+	WaitWithTimeout(&echoAmplifyRoundTripComplete, time.Second*60)
+
+}
+
+// Wait for the WaitGroup, or return an error if the wg.Wait() doesn't return within timeout
+// TODO: this code is duplicated with code in Sync Gateway utilities_testing.go.  Should be refactored to common repo.
+func WaitWithTimeout(wg *sync.WaitGroup, timeout time.Duration) error {
+
+	// Create a channel so that a goroutine waiting on the waitgroup can send it's result (if any)
+	wgFinished := make(chan bool)
+
+	go func() {
+		wg.Wait()
+		wgFinished <- true
+	}()
+
+	select {
+	case <-wgFinished:
+		return nil
+	case <-time.After(timeout):
+		return fmt.Errorf("Timed out waiting after %v", timeout)
+	}
 
 }
