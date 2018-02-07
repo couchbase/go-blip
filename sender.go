@@ -69,9 +69,12 @@ func (sender *Sender) send(msg *Message) bool {
 	}
 	msg.Sender = sender
 
-	sender.queue.assignMessageNumber(msg)
+	if msg.Type() == RequestType {
+		sender.queue.assignMessageNumber(msg)
+	}
 
 	if msg.Type() == RequestType && !msg.NoReply() {
+
 		response := msg.createResponse()
 
 		// TODO: is this racey?  Eg, can the async read happen before awaitResponse has a chance to put an entry
