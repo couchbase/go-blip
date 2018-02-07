@@ -113,23 +113,23 @@ func (r *receiver) handleIncomingFrame(frame []byte) error {
 	}
 	r.frameBuffer.Reset()
 	r.frameBuffer.Write(frame)
-	n, err := binary.ReadUvarint(&r.frameBuffer)
+	requestNumberRaw, err := binary.ReadUvarint(&r.frameBuffer)
 	if err != nil {
 		return err
 	}
-	requestNumber := MessageNumber(n)
-	n, err = binary.ReadUvarint(&r.frameBuffer)
+	requestNumber := MessageNumber(requestNumberRaw)
+	flagsRaw, err := binary.ReadUvarint(&r.frameBuffer)
 	if err != nil {
 		return err
 	}
-	flags := frameFlags(n)
+	flags := frameFlags(flagsRaw)
 	msgType := flags.messageType()
 
 	if msgType.isAck() {
 		// ACKs are parsed specially. They don't go through the codec nor contain a checksum:
 		body := r.frameBuffer.Bytes()
-		bytesReceived, n := binary.Uvarint(body)
-		if n > 0 {
+		bytesReceived, numBytesRead := binary.Uvarint(body)
+		if numBytesRead > 0 {
 			r.sender.receivedAck(requestNumber, msgType.ackSourceType(), bytesReceived)
 		} else {
 			r.context.log("Error reading ACK frame: %x", body)
