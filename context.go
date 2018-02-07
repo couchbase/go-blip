@@ -48,10 +48,14 @@ type LogContext interface {
 
 // Creates a new Context with an empty dispatch table.
 func NewContext() *Context {
+	return NewContextCustomID(fmt.Sprintf("%x", rand.Int31()))
+}
+
+func NewContextCustomID(id string) *Context {
 	return &Context{
 		HandlerForProfile: map[string]Handler{},
 		Logger:            logPrintfWrapper(),
-		ID:                fmt.Sprintf("%x", rand.Int31()),
+		ID:                id,
 	}
 }
 
