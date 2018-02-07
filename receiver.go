@@ -248,7 +248,7 @@ func (r *receiver) getPendingResponse(requestNumber MessageNumber, flags frameFl
 	} else {
 		err = fmt.Errorf("Bogus message number %d in response.  Expected to be less than max pending response number (%d)", requestNumber, r.maxPendingResponseNumber)
 	}
-	return
+	return msgStream, err
 }
 
 // pendingResponses is accessed from both the receiveLoop goroutine and the sender's goroutine,
