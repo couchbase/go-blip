@@ -311,8 +311,6 @@ func (m *Message) WriteTo(writer io.Writer) error {
 }
 
 func (m *Message) ReadFrom(reader io.Reader) error {
-
-	// TODO: this call can block forever
 	if err := m.Properties.ReadFrom(reader); err != nil {
 		return err
 	}
@@ -325,12 +323,11 @@ func (m *Message) ReadFrom(reader io.Reader) error {
 // the message will deliver itself.
 func (m *Message) asyncRead(onComplete func(error)) io.WriteCloser {
 
-	// TODO: this can block forever at the m.ReadFrom() call.
-	// Possible fix: if the websocket is detected to be closed, and the pipe reader (or writer?  or both?) was
-	// closed in reaction to that, then maybe the m.ReadFrom() call would return an error
-
 	reader, writer := io.Pipe()
 	m.reader = reader
+
+	// Start a goroutine to read off the read-end of the io.Pipe until it's read everything, or the
+	// write end of the io.Pipe was closed, which can happen if the peer closes the connection.
 	go func() {
 		defer decrAsyncReadGoroutines()
 		defer func() {
