@@ -86,6 +86,7 @@ func (sender *Sender) send(msg *Message) bool {
 	}
 
 	return sender.queue.pushWithCallback(msg, prePushCallback)
+
 }
 
 // Returns statistics about the number of incoming and outgoing messages queued.
@@ -99,6 +100,11 @@ func (sender *Sender) Backlog() (incomingRequests, incomingResponses, outgoingRe
 func (sender *Sender) Stop() {
 	sender.queue.stop()
 
+	// There can be goroutines spawned by message.asyncRead() that are blocked waiting to
+	// read off their end of an io.Pipe, and if the peer abruptly closes a connection which causes
+	// the sender to stop(), the other side of that io.Pipe must be closed to avoid the goroutine's
+	// call to unblock on the read() call.  This loops through any io.Pipewriters in pendingResponses and
+	// close them, unblocking the readers and letting the message.asyncRead() goroutines proceed.
 	for _, msgStreamer := range sender.receiver.pendingResponses {
 		err := msgStreamer.writer.Close()
 		if err != nil {
