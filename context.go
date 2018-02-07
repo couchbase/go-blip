@@ -86,6 +86,8 @@ func (context *Context) DialConfig(config *websocket.Config) (*Sender, error) {
 	sender := context.start(ws)
 	go func() {
 		defer decrReceiverGoroutines()
+		defer sender.Stop()
+
 		incrReceiverGoroutines()
 		err := sender.receiver.receiveLoop()
 		if err != nil {

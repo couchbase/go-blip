@@ -86,7 +86,7 @@ func (r *receiver) parseLoop() {
 	}()
 
 	incrParseLoopGoroutines()
-	
+
 	for frame := range r.channel {
 		if r.parseError == nil {
 			if err := r.handleIncomingFrame(frame); err != nil {
