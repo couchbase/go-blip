@@ -330,6 +330,7 @@ func (m *Message) asyncRead(onComplete func(error)) io.WriteCloser {
 			}
 		}()
 
+		defer reader.Close()
 		err := m.ReadFrom(reader)
 		onComplete(err)
 	}()
@@ -352,8 +353,8 @@ func (m *Message) nextFrameToSend(maxSize int) ([]byte, frameFlags) {
 				}
 			}()
 
+			defer writer.Close()
 			_ = m.WriteTo(writer)
-			_ = writer.Close()
 		}()
 	}
 
