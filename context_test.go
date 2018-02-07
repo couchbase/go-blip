@@ -99,12 +99,15 @@ func TestServerAbruptlyCloseConnectionBehavior(t *testing.T) {
 	receivedRequests.Wait()
 
 	// Read the echo response
-	response := echoRequest.Response()   // <-- blocks indefinitely here.
+	response := echoRequest.Response()   // <--- SG #3268 was causing this to block indefinitely
 	responseBody, err := response.Body()
 
 	// Assertions about echo response (these might need to be altered, maybe what's expected in this scenario is actually an error)
 	assert.True(t, err == nil)
-	assert.Equals(t, responseBody, []byte("hello"))
+	assert.True(t, len(responseBody) == 0)
+
+	// TODO: add more assertions about the response.  I'm not seeing any errors, or any
+	// TODO: way to differentiate this response with a normal response other than having an empty body
 
 }
 
