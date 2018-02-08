@@ -330,7 +330,6 @@ func (m *Message) asyncRead(onComplete func(error)) io.WriteCloser {
 			}
 		}()
 
-		defer reader.Close()
 		err := m.ReadFrom(reader)
 		onComplete(err)
 	}()
