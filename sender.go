@@ -84,11 +84,7 @@ func (sender *Sender) send(msg *Message) bool {
 		}
 	}
 
-	if !sender.queue.pushWithCallback(msg, prePushCallback) {
-		return false
-	}
-
-	return true
+	return sender.queue.pushWithCallback(msg, prePushCallback)
 }
 
 // Returns statistics about the number of incoming and outgoing messages queued.
