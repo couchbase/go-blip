@@ -3,6 +3,7 @@ package blip
 import (
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"sync"
 	"testing"
@@ -73,14 +74,20 @@ func TestServerAbruptlyCloseConnectionBehavior(t *testing.T) {
 
 	// HTTP Handler wrapping websocket server
 	http.Handle("/blip", defaultHandler)
+	listener, err := net.Listen("tcp", ":0")
+	if err != nil {
+		panic(err)
+	}
 	go func() {
-		log.Fatal(http.ListenAndServe(":12345", nil)) // TODO: use dynamic port
+		panic(http.Serve(listener, nil))
 	}()
 
 	// ----------------- Setup Echo Client ----------------------------------------
 
 	blipContextEchoClient := NewContext()
-	sender, err := blipContextEchoClient.Dial("ws://localhost:12345/blip", "http://localhost")
+	port := listener.Addr().(*net.TCPAddr).Port
+	destUrl := fmt.Sprintf("ws://localhost:%d/blip", port)
+	sender, err := blipContextEchoClient.Dial(destUrl, "http://localhost")
 	if err != nil {
 		panic("Error opening WebSocket: " + err.Error())
 	}
@@ -224,14 +231,20 @@ func TestClientAbruptlyCloseConnectionBehavior(t *testing.T) {
 
 	// HTTP Handler wrapping websocket server
 	http.Handle("/blip", defaultHandler)
+	listener, err := net.Listen("tcp", ":0")
+	if err != nil {
+		panic(err)
+	}
 	go func() {
-		log.Fatal(http.ListenAndServe(":12345", nil)) // TODO: use dynamic port
+		panic(http.Serve(listener, nil))
 	}()
 
 	// ----------------- Setup Echo Client ----------------------------------------
 
 	blipContextEchoClient := NewContext()
-	sender, err := blipContextEchoClient.Dial("ws://localhost:12345/blip", "http://localhost")
+	port := listener.Addr().(*net.TCPAddr).Port
+	destUrl := fmt.Sprintf("ws://localhost:%d/blip", port)
+	sender, err := blipContextEchoClient.Dial(destUrl, "http://localhost")
 	if err != nil {
 		panic("Error opening WebSocket: " + err.Error())
 	}
