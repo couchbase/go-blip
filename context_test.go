@@ -73,7 +73,7 @@ func TestServerAbruptlyCloseConnectionBehavior(t *testing.T) {
 	}
 
 	// HTTP Handler wrapping websocket server
-	http.Handle("/blip", defaultHandler)
+	http.Handle("/TestServerAbruptlyCloseConnectionBehavior", defaultHandler)
 	listener, err := net.Listen("tcp", ":0")
 	if err != nil {
 		panic(err)
@@ -86,7 +86,7 @@ func TestServerAbruptlyCloseConnectionBehavior(t *testing.T) {
 
 	blipContextEchoClient := NewContext()
 	port := listener.Addr().(*net.TCPAddr).Port
-	destUrl := fmt.Sprintf("ws://localhost:%d/blip", port)
+	destUrl := fmt.Sprintf("ws://localhost:%d/TestServerAbruptlyCloseConnectionBehavior", port)
 	sender, err := blipContextEchoClient.Dial(destUrl, "http://localhost")
 	if err != nil {
 		panic("Error opening WebSocket: " + err.Error())
@@ -230,7 +230,7 @@ func TestClientAbruptlyCloseConnectionBehavior(t *testing.T) {
 	}
 
 	// HTTP Handler wrapping websocket server
-	http.Handle("/blip", defaultHandler)
+	http.Handle("/TestClientAbruptlyCloseConnectionBehavior", defaultHandler)
 	listener, err := net.Listen("tcp", ":0")
 	if err != nil {
 		panic(err)
@@ -243,7 +243,7 @@ func TestClientAbruptlyCloseConnectionBehavior(t *testing.T) {
 
 	blipContextEchoClient := NewContext()
 	port := listener.Addr().(*net.TCPAddr).Port
-	destUrl := fmt.Sprintf("ws://localhost:%d/blip", port)
+	destUrl := fmt.Sprintf("ws://localhost:%d/TestClientAbruptlyCloseConnectionBehavior", port)
 	sender, err := blipContextEchoClient.Dial(destUrl, "http://localhost")
 	if err != nil {
 		panic("Error opening WebSocket: " + err.Error())
