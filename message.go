@@ -374,6 +374,9 @@ func (m *Message) nextFrameToSend(maxSize int) ([]byte, frameFlags) {
 	return frame, flags
 }
 
+// A callback function that takes a message and returns nothing
+type MessageCallback func(*Message)
+
 //  Copyright (c) 2013 Jens Alfke. Copyright (c) 2015-2017 Couchbase, Inc.
 //  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file
 //  except in compliance with the License. You may obtain a copy of the License at

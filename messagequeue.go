@@ -70,7 +70,14 @@ func (q *messageQueue) _push(msg *Message, new bool) bool { // requires lock
 	return true
 }
 
+// Push an item into the queue
 func (q *messageQueue) push(msg *Message) bool {
+	return q.pushWithCallback(msg, nil)
+}
+
+// Push an item into the queue, also providing a callback function that will be invoked
+// after the number is assigned to the message, but before pushing into the queue.
+func (q *messageQueue) pushWithCallback(msg *Message, prepushCallback MessageCallback) bool {
 	q.cond.L.Lock()
 	defer q.cond.L.Unlock()
 
@@ -87,6 +94,10 @@ func (q *messageQueue) push(msg *Message) bool {
 		q.numRequestsSent++
 		msg.number = q.numRequestsSent
 		q.logContext.logMessage("Queued %s", msg)
+	}
+
+	if prepushCallback != nil {
+		prepushCallback(msg)
 	}
 
 	return q._push(msg, isNew)

@@ -69,18 +69,22 @@ func (sender *Sender) send(msg *Message) bool {
 	}
 	msg.Sender = sender
 
-	if !sender.queue.push(msg) {
-		return false
+	// This callback function will be called by queue.pushWithCallback() after the
+	// message is assigned a number, but *before* it is put in the send queue.
+	// It will create the io.Pipe and store the io.PipeWriter into the pendingResponses map
+	// before the message is ever queued, preventing any possible races where the message is
+	// sent and a reply is received before anything added to pendingResponses (SG issue #3221)
+	prePushCallback := func(prePushMsg *Message) {
+		if prePushMsg.Type() == RequestType && !prePushMsg.NoReply() {
+			response := prePushMsg.createResponse()
+			writer := response.asyncRead(func(err error) {
+				prePushMsg.responseComplete(response)
+			})
+			sender.receiver.awaitResponse(response, writer)
+		}
 	}
 
-	if msg.Type() == RequestType && !msg.NoReply() {
-		response := msg.createResponse()
-		writer := response.asyncRead(func(err error) {
-			msg.responseComplete(response)
-		})
-		sender.receiver.awaitResponse(response, writer)
-	}
-	return true
+	return sender.queue.pushWithCallback(msg, prePushCallback)
 }
 
 // Returns statistics about the number of incoming and outgoing messages queued.
