@@ -3,9 +3,12 @@ package blip
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
+	"log"
+	"runtime/debug"
 	"sync"
 )
 
@@ -322,6 +325,14 @@ func (m *Message) asyncRead(onComplete func(error)) io.WriteCloser {
 	reader, writer := io.Pipe()
 	m.reader = reader
 	go func() {
+		defer func() {
+			if p := recover(); p != nil {
+				err := fmt.Sprintf("PANIC in BLIP asyncRead: %v", p)
+				log.Printf(err+"\n%s", debug.Stack())
+				reader.CloseWithError(errors.New(err))
+			}
+		}()
+
 		err := m.ReadFrom(reader)
 		onComplete(err)
 	}()
@@ -338,8 +349,14 @@ func (m *Message) nextFrameToSend(maxSize int) ([]byte, frameFlags) {
 		var writer io.WriteCloser
 		m.encoder, writer = io.Pipe()
 		go func() {
-			m.WriteTo(writer)
-			writer.Close()
+			defer func() {
+				if p := recover(); p != nil {
+					log.Printf("PANIC in BLIP nextFrameToSend: %v\n%s", p, debug.Stack())
+				}
+			}()
+
+			defer writer.Close()
+			_ = m.WriteTo(writer)
 		}()
 	}
 
