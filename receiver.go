@@ -102,10 +102,36 @@ func (r *receiver) parseLoop() {
 func (r *receiver) fatalError(err error) {
 	r.context.log("Error: parseLoop closing socket due to error: %v", err)
 	r.parseError = err
+	r.stop()
+}
+
+func (r *receiver) stop() {
+
+	r.closePendingResponses()
+
 	r.conn.Close()
 	//TODO: Should set a WebSocket close code/msg, but websocket.Conn has no API for that
 	// (Gorilla's WebSocket package does...) This isn't harmful, it just means the peer won't know
 	// the exact reason the connection closed.
+
+}
+
+func (r *receiver) closePendingResponses() {
+
+	r.pendingMutex.Lock()
+	defer r.pendingMutex.Unlock()
+
+	// There can be goroutines spawned by message.asyncRead() that are blocked waiting to
+	// read off their end of an io.Pipe, and if the peer abruptly closes a connection which causes
+	// the sender to stop(), the other side of that io.Pipe must be closed to avoid the goroutine's
+	// call to unblock on the read() call.  This loops through any io.Pipewriters in pendingResponses and
+	// close them, unblocking the readers and letting the message.asyncRead() goroutines proceed.
+	for _, msgStreamer := range r.pendingResponses {
+		err := msgStreamer.writer.Close()
+		if err != nil {
+			r.context.logMessage("Warning: error closing msgStreamer writer in pending responses while stopping receiver: %v", err)
+		}
+	}
 }
 
 func (r *receiver) handleIncomingFrame(frame []byte) error {
