@@ -148,7 +148,10 @@ func (sender *Sender) start() {
 				frameBuffer.Write(checksum[:])
 			}
 
-			sender.conn.Write(frameBuffer.Bytes())
+			_, err := sender.conn.Write(frameBuffer.Bytes()) // See #19 for details on why it ignores num bytes written.
+			if err != nil {
+				sender.context.logFrame("Sender error writing framebuffer (len=%d). Error: %v", len(frameBuffer.Bytes()), err)
+			}
 			frameBuffer.Reset()
 
 			if (flags & kMoreComing) != 0 {
@@ -224,7 +227,11 @@ func (sender *Sender) sendAck(msgNo MessageNumber, msgType MessageType, bytesRec
 	i := binary.PutUvarint(buffer[:], uint64(msgNo))
 	i += binary.PutUvarint(buffer[i:], uint64(flags))
 	i += binary.PutUvarint(buffer[i:], uint64(bytesReceived))
-	sender.conn.Write(buffer[0:i])
+	_, err := sender.conn.Write(buffer[0:i])  // See #19 for details on why it ignores num bytes written.
+	if err != nil {
+		sender.context.logFrame("Sender error writing ack. Error: %v", err)
+	}
+
 }
 
 //  Copyright (c) 2013 Jens Alfke. Copyright (c) 2015-2017 Couchbase, Inc.
