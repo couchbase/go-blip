@@ -73,7 +73,6 @@ func (r *receiver) receiveLoop() error {
 }
 
 func (r *receiver) parseLoop() {
-	defer decrParseLoopGoroutines()
 	defer func() { // Panic handler:
 		if p := recover(); p != nil {
 			log.Printf("PANIC in BLIP parseLoop: %v\n%s", p, debug.Stack())
@@ -85,7 +84,9 @@ func (r *receiver) parseLoop() {
 		}
 	}()
 
+	// Update Expvar stats for number of outstanding goroutines
 	incrParseLoopGoroutines()
+	defer decrParseLoopGoroutines()
 
 	for frame := range r.channel {
 		if r.parseError == nil {

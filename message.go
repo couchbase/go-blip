@@ -329,7 +329,6 @@ func (m *Message) asyncRead(onComplete func(error)) io.WriteCloser {
 	// Start a goroutine to read off the read-end of the io.Pipe until it's read everything, or the
 	// write end of the io.Pipe was closed, which can happen if the peer closes the connection.
 	go func() {
-		defer decrAsyncReadGoroutines()
 		defer func() {
 			if p := recover(); p != nil {
 				err := fmt.Sprintf("PANIC in BLIP asyncRead: %v", p)
@@ -338,7 +337,10 @@ func (m *Message) asyncRead(onComplete func(error)) io.WriteCloser {
 			}
 		}()
 
+		// Update Expvar stats for number of outstanding goroutines
 		incrAsyncReadGoroutines()
+		defer decrAsyncReadGoroutines()
+
 		err := m.ReadFrom(reader)
 		onComplete(err)
 	}()
@@ -355,7 +357,6 @@ func (m *Message) nextFrameToSend(maxSize int) ([]byte, frameFlags) {
 		var writer io.WriteCloser
 		m.encoder, writer = io.Pipe()
 		go func() {
-			defer decrNextFrameToSendGoroutines()
 			defer func() {
 				if p := recover(); p != nil {
 					log.Printf("PANIC in BLIP nextFrameToSend: %v\n%s", p, debug.Stack())
@@ -363,7 +364,10 @@ func (m *Message) nextFrameToSend(maxSize int) ([]byte, frameFlags) {
 			}()
 			defer writer.Close()
 
+			// Update Expvar stats for number of outstanding goroutines
 			incrNextFrameToSendGoroutines()
+			defer decrNextFrameToSendGoroutines()
+
 			_ = m.WriteTo(writer)
 
 		}()
