@@ -25,13 +25,13 @@ type Message struct {
 	bytesSent  uint64
 	bytesAcked uint64
 
-	reader       io.Reader  // Stream that an incoming message is being read from
-	encoder      io.Reader  // Stream that an outgoing message is being written to
-	readingBody  bool       // True if reader stream has been accessed by client already
-	complete     bool       // Has this message been completely received?
-	response     *Message   // Response to this message, if it's a request
-	inResponseTo *Message   // Message this is a response to
-	cond         *sync.Cond // Used to make Response() method block until response arrives
+	reader       io.ReadCloser // Stream that an incoming message is being read from
+	encoder      io.Reader     // Stream that an outgoing message is being written to
+	readingBody  bool          // True if reader stream has been accessed by client already
+	complete     bool          // Has this message been completely received?
+	response     *Message      // Response to this message, if it's a request
+	inResponseTo *Message      // Message this is a response to
+	cond         *sync.Cond    // Used to make Response() method block until response arrives
 }
 
 // Returns a string describing the message for debugging purposes
@@ -249,7 +249,7 @@ func (response *Message) SetError(errDomain string, errCode int, message string)
 
 //////// INTERNALS:
 
-func newIncomingMessage(sender *Sender, number MessageNumber, flags frameFlags, reader io.Reader) *Message {
+func newIncomingMessage(sender *Sender, number MessageNumber, flags frameFlags, reader io.ReadCloser) *Message {
 	return &Message{
 		Sender: sender,
 		flags:  flags | kMoreComing,
@@ -322,8 +322,12 @@ func (m *Message) ReadFrom(reader io.Reader) error {
 // Returns a write stream to write the incoming message's content into. When the stream is closed,
 // the message will deliver itself.
 func (m *Message) asyncRead(onComplete func(error)) io.WriteCloser {
+
 	reader, writer := io.Pipe()
 	m.reader = reader
+
+	// Start a goroutine to read off the read-end of the io.Pipe until it's read everything, or the
+	// write end of the io.Pipe was closed, which can happen if the peer closes the connection.
 	go func() {
 		defer func() {
 			if p := recover(); p != nil {
@@ -332,6 +336,10 @@ func (m *Message) asyncRead(onComplete func(error)) io.WriteCloser {
 				reader.CloseWithError(errors.New(err))
 			}
 		}()
+
+		// Update Expvar stats for number of outstanding goroutines
+		incrAsyncReadGoroutines()
+		defer decrAsyncReadGoroutines()
 
 		err := m.ReadFrom(reader)
 		onComplete(err)
@@ -354,9 +362,14 @@ func (m *Message) nextFrameToSend(maxSize int) ([]byte, frameFlags) {
 					log.Printf("PANIC in BLIP nextFrameToSend: %v\n%s", p, debug.Stack())
 				}
 			}()
-
 			defer writer.Close()
+
+			// Update Expvar stats for number of outstanding goroutines
+			incrNextFrameToSendGoroutines()
+			defer decrNextFrameToSendGoroutines()
+
 			_ = m.WriteTo(writer)
+
 		}()
 	}
 

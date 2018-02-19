@@ -78,6 +78,7 @@ func (sender *Sender) send(msg *Message) bool {
 		if prePushMsg.Type() == RequestType && !prePushMsg.NoReply() {
 			response := prePushMsg.createResponse()
 			writer := response.asyncRead(func(err error) {
+				// TODO: the error passed into this callback is currently being ignored.  Calling response.SetError() causes: "panic: Message can't be modified"
 				prePushMsg.responseComplete(response)
 			})
 			sender.receiver.awaitResponse(response, writer)
@@ -85,6 +86,7 @@ func (sender *Sender) send(msg *Message) bool {
 	}
 
 	return sender.queue.pushWithCallback(msg, prePushCallback)
+
 }
 
 // Returns statistics about the number of incoming and outgoing messages queued.
@@ -97,6 +99,12 @@ func (sender *Sender) Backlog() (incomingRequests, incomingResponses, outgoingRe
 // Stops the sender's goroutine.
 func (sender *Sender) Stop() {
 	sender.queue.stop()
+	if sender.receiver != nil {
+		sender.receiver.stop()
+	}
+
+
+
 }
 
 func (sender *Sender) Close() {
@@ -113,6 +121,10 @@ func (sender *Sender) start() {
 				log.Printf("PANIC in BLIP sender: %v\n%s", panicked, debug.Stack())
 			}
 		}()
+
+		// Update Expvar stats for number of outstanding goroutines
+		incrSenderGoroutines()
+		defer decrSenderGoroutines()
 
 		sender.context.logFrame("Sender starting")
 		frameBuffer := bytes.NewBuffer(make([]byte, 0, kBigFrameSize))
