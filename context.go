@@ -24,13 +24,18 @@ func Unhandled(request *Message) {
 
 // Defines how incoming requests are dispatched to handler functions.
 type Context struct {
-	HandlerForProfile map[string]Handler // Handler function for a request Profile
-	DefaultHandler    Handler            // Handler for all otherwise unhandled requests
-	FatalErrorHandler func(error)        // Called when connection has a fatal error
-	MaxSendQueueCount int                // Max # of messages being sent at once (if >0)
-	Logger            LogFn              // Logging callback; defaults to log.Printf
-	LogMessages       bool               // If true, will log about messages
-	LogFrames         bool               // If true, will log about frames (very verbose)
+
+	// The WebSocket subprotocol that this blip context is constrained to.  Eg: BLIP_3+CBMobile_2
+	// Client request must indicate that it supports this protocol, else WebSocket handshake will fail.
+	WebSocketSubProtocol string
+
+	HandlerForProfile    map[string]Handler // Handler function for a request Profile
+	DefaultHandler       Handler            // Handler for all otherwise unhandled requests
+	FatalErrorHandler    func(error)        // Called when connection has a fatal error
+	MaxSendQueueCount    int                // Max # of messages being sent at once (if >0)
+	Logger               LogFn              // Logging callback; defaults to log.Printf
+	LogMessages          bool               // If true, will log about messages
+	LogFrames            bool               // If true, will log about frames (very verbose)
 
 	// An identifier that uniquely defines the context.  NOTE: Random Number Generator not seeded by go-blip.
 	ID string
@@ -47,15 +52,18 @@ type LogContext interface {
 //////// SETUP:
 
 // Creates a new Context with an empty dispatch table.
-func NewContext() *Context {
-	return NewContextCustomID(fmt.Sprintf("%x", rand.Int31()))
+func NewContext(WebSocketSubProtocol string) *Context {
+	return NewContextCustomID(fmt.Sprintf("%x", rand.Int31()), WebSocketSubProtocol)
 }
 
-func NewContextCustomID(id string) *Context {
+// Creates a new Context with a custom ID, which can be helpful to differentiate logs between other blip contexts
+// in the same process.
+func NewContextCustomID(id string, WebSocketSubProtocol string) *Context {
 	return &Context{
-		HandlerForProfile: map[string]Handler{},
-		Logger:            logPrintfWrapper(),
-		ID:                id,
+		HandlerForProfile:    map[string]Handler{},
+		Logger:               logPrintfWrapper(),
+		ID:                   id,
+		WebSocketSubProtocol: WebSocketSubProtocol,
 	}
 }
 
@@ -78,7 +86,7 @@ func (context *Context) Dial(url string, origin string) (*Sender, error) {
 // Opens a BLIP connection to a host given a websocket.Config, which allows
 // the caller to specify Authorization header.
 func (context *Context) DialConfig(config *websocket.Config) (*Sender, error) {
-	config.Protocol = []string{WebSocketProtocolName}
+	config.Protocol = []string{context.WebSocketSubProtocol}
 	ws, err := websocket.DialConfig(config)
 	if err != nil {
 		return nil, err
@@ -107,11 +115,11 @@ type WSHandshake func(*websocket.Config, *http.Request) error
 func (context *Context) WebSocketHandshake() WSHandshake {
 	return func(config *websocket.Config, rq *http.Request) error {
 		protocolHeader := rq.Header.Get("Sec-WebSocket-Protocol")
-		if !includesProtocol(protocolHeader, WebSocketProtocolName) {
-			context.log("Error: Client doesn't support WS protocol %s, only %s", WebSocketProtocolName, protocolHeader)
-			return &websocket.ProtocolError{"I only speak " + WebSocketProtocolName + " protocol"}
+		if !includesProtocol(protocolHeader, context.WebSocketSubProtocol) {
+			context.log("Error: Client doesn't support WS protocol %s, only %s", context.WebSocketSubProtocol, protocolHeader)
+			return &websocket.ProtocolError{"I only speak " + context.WebSocketSubProtocol + " protocol"}
 		}
-		config.Protocol = []string{WebSocketProtocolName}
+		config.Protocol = []string{context.WebSocketSubProtocol}
 		return nil
 	}
 }

@@ -11,9 +11,12 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const verbosity = 0
 
-const kInterface = ":12345"
+const (
+	verbosity = 0
+	kInterface = ":12345"
+	ExampleWebsocketSubprotocol = "BLIP_3+Example"
+)
 
 // This program acts as a listener equivalent to the Objective-C one in MYNetwork's
 // BLIPWebSocketTest.m.
@@ -36,7 +39,7 @@ func responder() {
 	runtime.GOMAXPROCS(maxProcs)
 	log.Printf("Set GOMAXPROCS to %d", maxProcs)
 
-	context := blip.NewContext()
+	context := blip.NewContext(ExampleWebsocketSubprotocol)
 	context.HandlerForProfile["BLIPTest/EchoData"] = dispatchEcho
 	context.LogMessages = verbosity > 1
 	context.LogFrames = verbosity > 2

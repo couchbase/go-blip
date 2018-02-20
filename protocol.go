@@ -1,9 +1,5 @@
 package blip
 
-// WebSocket [sub]protocol name for BLIP, used during WebSocket handshake.
-// Client request must indicate that it supports this protocol, else the handshake will fail.
-const WebSocketProtocolName = "BLIP_3a2"
-
 // Domain used in errors returned by BLIP itself.
 const BLIPErrorDomain = "BLIP"
 

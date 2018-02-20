@@ -13,6 +13,9 @@ import (
 	"golang.org/x/net/websocket"
 )
 
+
+const TestWebsocketSubprotocol = "BLIP_3+Test"
+
 // This was added in reaction to https://github.com/couchbase/sync_gateway/issues/3268 to either
 // confirm or deny erroneous behavior w.r.t sockets being abruptly closed.  The main question attempted
 // to be answered is:
@@ -30,7 +33,7 @@ import (
 //
 func TestServerAbruptlyCloseConnectionBehavior(t *testing.T) {
 
-	blipContextEchoServer := NewContext()
+	blipContextEchoServer := NewContext(TestWebsocketSubprotocol)
 
 	receivedRequests := sync.WaitGroup{}
 
@@ -84,7 +87,7 @@ func TestServerAbruptlyCloseConnectionBehavior(t *testing.T) {
 
 	// ----------------- Setup Echo Client ----------------------------------------
 
-	blipContextEchoClient := NewContext()
+	blipContextEchoClient := NewContext(TestWebsocketSubprotocol)
 	port := listener.Addr().(*net.TCPAddr).Port
 	destUrl := fmt.Sprintf("ws://localhost:%d/TestServerAbruptlyCloseConnectionBehavior", port)
 	sender, err := blipContextEchoClient.Dial(destUrl, "http://localhost")
@@ -165,7 +168,7 @@ The test does the following steps:
 */
 func TestClientAbruptlyCloseConnectionBehavior(t *testing.T) {
 
-	blipContextEchoServer := NewContext()
+	blipContextEchoServer := NewContext(TestWebsocketSubprotocol)
 
 	receivedEchoRequest := sync.WaitGroup{}
 	echoAmplifyRoundTripComplete := sync.WaitGroup{}
@@ -241,7 +244,7 @@ func TestClientAbruptlyCloseConnectionBehavior(t *testing.T) {
 
 	// ----------------- Setup Echo Client ----------------------------------------
 
-	blipContextEchoClient := NewContext()
+	blipContextEchoClient := NewContext(TestWebsocketSubprotocol)
 	port := listener.Addr().(*net.TCPAddr).Port
 	destUrl := fmt.Sprintf("ws://localhost:%d/TestClientAbruptlyCloseConnectionBehavior", port)
 	sender, err := blipContextEchoClient.Dial(destUrl, "http://localhost")
@@ -288,6 +291,42 @@ func TestClientAbruptlyCloseConnectionBehavior(t *testing.T) {
 	WaitWithTimeout(&echoAmplifyRoundTripComplete, time.Second*60)
 
 }
+
+
+func TestIncludesProtocol(t *testing.T) {
+
+	headersWithExpectedResponses := []struct {
+		Header             string
+		ExpectedResponse   bool
+		MatchedSubprotocol string
+	}{
+		{
+			Header:             TestWebsocketSubprotocol,
+			ExpectedResponse:   true,
+		},
+		{
+			Header:             TestWebsocketSubprotocol +",SomeOtherWebsocketSubprotocol",
+			ExpectedResponse:   true,
+		},
+		{
+			Header:             "SomeOtherWebsocketSubprotocol," + TestWebsocketSubprotocol,
+			ExpectedResponse:   true,
+		},
+		{
+			Header:             "SomeOtherWebsocketSubprotocol",
+			ExpectedResponse:   false,
+		},
+
+	}
+
+	for _, headerWithExpectedResponse := range headersWithExpectedResponses {
+		matched := includesProtocol(headerWithExpectedResponse.Header, TestWebsocketSubprotocol)
+		assert.Equals(t, matched, headerWithExpectedResponse.ExpectedResponse)
+	}
+
+}
+
+
 
 // Wait for the WaitGroup, or return an error if the wg.Wait() doesn't return within timeout
 // TODO: this code is duplicated with code in Sync Gateway utilities_testing.go.  Should be refactored to common repo.
