@@ -50,7 +50,7 @@ func sender() {
 	runtime.GOMAXPROCS(maxProcs)
 	log.Printf("Set GOMAXPROCS to %d", maxProcs)
 
-	context := blip.NewContext(ExampleWebsocketSubprotocol)
+	context := blip.NewContext(BlipExampleAppProtocolId)
 	context.MaxSendQueueCount = kMaxSendQueueCount
 	context.LogMessages = verbosity > 1
 	context.LogFrames = verbosity > 2

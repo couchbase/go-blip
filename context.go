@@ -29,13 +29,13 @@ type Context struct {
 	// Client request must indicate that it supports this protocol, else WebSocket handshake will fail.
 	WebSocketSubProtocol string
 
-	HandlerForProfile    map[string]Handler // Handler function for a request Profile
-	DefaultHandler       Handler            // Handler for all otherwise unhandled requests
-	FatalErrorHandler    func(error)        // Called when connection has a fatal error
-	MaxSendQueueCount    int                // Max # of messages being sent at once (if >0)
-	Logger               LogFn              // Logging callback; defaults to log.Printf
-	LogMessages          bool               // If true, will log about messages
-	LogFrames            bool               // If true, will log about frames (very verbose)
+	HandlerForProfile map[string]Handler // Handler function for a request Profile
+	DefaultHandler    Handler            // Handler for all otherwise unhandled requests
+	FatalErrorHandler func(error)        // Called when connection has a fatal error
+	MaxSendQueueCount int                // Max # of messages being sent at once (if >0)
+	Logger            LogFn              // Logging callback; defaults to log.Printf
+	LogMessages       bool               // If true, will log about messages
+	LogFrames         bool               // If true, will log about frames (very verbose)
 
 	// An identifier that uniquely defines the context.  NOTE: Random Number Generator not seeded by go-blip.
 	ID string
@@ -52,18 +52,20 @@ type LogContext interface {
 //////// SETUP:
 
 // Creates a new Context with an empty dispatch table.
-func NewContext(WebSocketSubProtocol string) *Context {
-	return NewContextCustomID(fmt.Sprintf("%x", rand.Int31()), WebSocketSubProtocol)
+func NewContext(AppProtocolId string) *Context {
+	return NewContextCustomID(fmt.Sprintf("%x", rand.Int31()), AppProtocolId)
 }
 
 // Creates a new Context with a custom ID, which can be helpful to differentiate logs between other blip contexts
-// in the same process.
-func NewContextCustomID(id string, WebSocketSubProtocol string) *Context {
+// in the same process. The AppProtocolId ensures that this client will only connect to peers that have agreed
+// upon the same application layer level usage of BLIP.  For example "CBMobile_2" is the AppProtocolId for the
+// Couchbase Mobile replication protocol.
+func NewContextCustomID(id string, AppProtocolId string) *Context {
 	return &Context{
 		HandlerForProfile:    map[string]Handler{},
 		Logger:               logPrintfWrapper(),
 		ID:                   id,
-		WebSocketSubProtocol: WebSocketSubProtocol,
+		WebSocketSubProtocol: NewWebSocketSubProtocol(AppProtocolId),
 	}
 }
 

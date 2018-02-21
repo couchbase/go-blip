@@ -19,7 +19,7 @@ import (
 // aka a "functional test".
 func TestEchoRoundTrip(t *testing.T) {
 
-	blipContextEchoServer := NewContext(TestWebsocketSubprotocol)
+	blipContextEchoServer := NewContext(BlipTestAppProtocolId)
 
 	receivedRequests := sync.WaitGroup{}
 
@@ -70,7 +70,7 @@ func TestEchoRoundTrip(t *testing.T) {
 
 	// ----------------- Setup Echo Client ----------------------------------------
 
-	blipContextEchoClient := NewContext(TestWebsocketSubprotocol)
+	blipContextEchoClient := NewContext(BlipTestAppProtocolId)
 	port := listener.Addr().(*net.TCPAddr).Port
 	destUrl := fmt.Sprintf("ws://localhost:%d/blip", port)
 	sender, err := blipContextEchoClient.Dial(destUrl, "http://localhost")
