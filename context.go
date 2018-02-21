@@ -52,20 +52,20 @@ type LogContext interface {
 //////// SETUP:
 
 // Creates a new Context with an empty dispatch table.
-func NewContext(AppProtocolId string) *Context {
-	return NewContextCustomID(fmt.Sprintf("%x", rand.Int31()), AppProtocolId)
+func NewContext(appProtocolId string) *Context {
+	return NewContextCustomID(fmt.Sprintf("%x", rand.Int31()), appProtocolId)
 }
 
 // Creates a new Context with a custom ID, which can be helpful to differentiate logs between other blip contexts
 // in the same process. The AppProtocolId ensures that this client will only connect to peers that have agreed
 // upon the same application layer level usage of BLIP.  For example "CBMobile_2" is the AppProtocolId for the
 // Couchbase Mobile replication protocol.
-func NewContextCustomID(id string, AppProtocolId string) *Context {
+func NewContextCustomID(id string, appProtocolId string) *Context {
 	return &Context{
 		HandlerForProfile:    map[string]Handler{},
 		Logger:               logPrintfWrapper(),
 		ID:                   id,
-		WebSocketSubProtocol: NewWebSocketSubProtocol(AppProtocolId),
+		WebSocketSubProtocol: NewWebSocketSubProtocol(appProtocolId),
 	}
 }
 
