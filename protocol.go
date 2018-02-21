@@ -1,8 +1,13 @@
 package blip
 
-// WebSocket [sub]protocol name for BLIP, used during WebSocket handshake.
+import "fmt"
+
+// WebSocket [sub]protocol prefix for BLIP, used during WebSocket handshake.
 // Client request must indicate that it supports this protocol, else the handshake will fail.
-const WebSocketProtocolName = "BLIP_3a2"
+// The full websocket subprotocol will also have an identifier for the application layer protocol:
+// <WebSocketSubProtocolPrefix>+<AppProtocolId>, eg BLIP_3+CBMobile_2.
+// Every sub-protocol used by a caller should begin with this string.
+const WebSocketSubProtocolPrefix = "BLIP_3"
 
 // Domain used in errors returned by BLIP itself.
 const BLIPErrorDomain = "BLIP"
@@ -62,6 +67,13 @@ const (
 
 func (f frameFlags) messageType() MessageType {
 	return MessageType(f & kTypeMask)
+}
+
+///////// HELPER UTILS:
+
+// Create a new Websocket subprotocol using the given application protocol identifier.
+func NewWebSocketSubProtocol(AppProtocolId string) string {
+	return fmt.Sprintf("%s+%s", WebSocketSubProtocolPrefix, AppProtocolId)
 }
 
 //  Copyright (c) 2013 Jens Alfke. Copyright (c) 2015-2017 Couchbase, Inc.

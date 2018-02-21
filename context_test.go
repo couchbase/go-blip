@@ -13,6 +13,9 @@ import (
 	"golang.org/x/net/websocket"
 )
 
+// The application protocol id of the BLIP websocket subprotocol used in go-blip unit tests
+const BlipTestAppProtocolId = "GoBlipUnitTests"
+
 // This was added in reaction to https://github.com/couchbase/sync_gateway/issues/3268 to either
 // confirm or deny erroneous behavior w.r.t sockets being abruptly closed.  The main question attempted
 // to be answered is:
@@ -30,7 +33,7 @@ import (
 //
 func TestServerAbruptlyCloseConnectionBehavior(t *testing.T) {
 
-	blipContextEchoServer := NewContext()
+	blipContextEchoServer := NewContext(BlipTestAppProtocolId)
 
 	receivedRequests := sync.WaitGroup{}
 
@@ -84,7 +87,7 @@ func TestServerAbruptlyCloseConnectionBehavior(t *testing.T) {
 
 	// ----------------- Setup Echo Client ----------------------------------------
 
-	blipContextEchoClient := NewContext()
+	blipContextEchoClient := NewContext(BlipTestAppProtocolId)
 	port := listener.Addr().(*net.TCPAddr).Port
 	destUrl := fmt.Sprintf("ws://localhost:%d/TestServerAbruptlyCloseConnectionBehavior", port)
 	sender, err := blipContextEchoClient.Dial(destUrl, "http://localhost")
@@ -165,7 +168,7 @@ The test does the following steps:
 */
 func TestClientAbruptlyCloseConnectionBehavior(t *testing.T) {
 
-	blipContextEchoServer := NewContext()
+	blipContextEchoServer := NewContext(BlipTestAppProtocolId)
 
 	receivedEchoRequest := sync.WaitGroup{}
 	echoAmplifyRoundTripComplete := sync.WaitGroup{}
@@ -241,7 +244,7 @@ func TestClientAbruptlyCloseConnectionBehavior(t *testing.T) {
 
 	// ----------------- Setup Echo Client ----------------------------------------
 
-	blipContextEchoClient := NewContext()
+	blipContextEchoClient := NewContext(BlipTestAppProtocolId)
 	port := listener.Addr().(*net.TCPAddr).Port
 	destUrl := fmt.Sprintf("ws://localhost:%d/TestClientAbruptlyCloseConnectionBehavior", port)
 	sender, err := blipContextEchoClient.Dial(destUrl, "http://localhost")
@@ -286,6 +289,38 @@ func TestClientAbruptlyCloseConnectionBehavior(t *testing.T) {
 
 	// Wait until the amplify request was received by client (from server), and that the server read the response
 	WaitWithTimeout(&echoAmplifyRoundTripComplete, time.Second*60)
+
+}
+
+func TestIncludesProtocol(t *testing.T) {
+
+	headersWithExpectedResponses := []struct {
+		Header             string
+		ExpectedResponse   bool
+		MatchedSubprotocol string
+	}{
+		{
+			Header:           BlipTestAppProtocolId,
+			ExpectedResponse: true,
+		},
+		{
+			Header:           BlipTestAppProtocolId + ",SomeOtherWebsocketSubprotocol",
+			ExpectedResponse: true,
+		},
+		{
+			Header:           "SomeOtherWebsocketSubprotocol," + BlipTestAppProtocolId,
+			ExpectedResponse: true,
+		},
+		{
+			Header:           "SomeOtherWebsocketSubprotocol",
+			ExpectedResponse: false,
+		},
+	}
+
+	for _, headerWithExpectedResponse := range headersWithExpectedResponses {
+		matched := includesProtocol(headerWithExpectedResponse.Header, BlipTestAppProtocolId)
+		assert.Equals(t, matched, headerWithExpectedResponse.ExpectedResponse)
+	}
 
 }
 

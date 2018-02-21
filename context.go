@@ -24,6 +24,11 @@ func Unhandled(request *Message) {
 
 // Defines how incoming requests are dispatched to handler functions.
 type Context struct {
+
+	// The WebSocket subprotocol that this blip context is constrained to.  Eg: BLIP_3+CBMobile_2
+	// Client request must indicate that it supports this protocol, else WebSocket handshake will fail.
+	WebSocketSubProtocol string
+
 	HandlerForProfile map[string]Handler // Handler function for a request Profile
 	DefaultHandler    Handler            // Handler for all otherwise unhandled requests
 	FatalErrorHandler func(error)        // Called when connection has a fatal error
@@ -47,15 +52,20 @@ type LogContext interface {
 //////// SETUP:
 
 // Creates a new Context with an empty dispatch table.
-func NewContext() *Context {
-	return NewContextCustomID(fmt.Sprintf("%x", rand.Int31()))
+func NewContext(appProtocolId string) *Context {
+	return NewContextCustomID(fmt.Sprintf("%x", rand.Int31()), appProtocolId)
 }
 
-func NewContextCustomID(id string) *Context {
+// Creates a new Context with a custom ID, which can be helpful to differentiate logs between other blip contexts
+// in the same process. The AppProtocolId ensures that this client will only connect to peers that have agreed
+// upon the same application layer level usage of BLIP.  For example "CBMobile_2" is the AppProtocolId for the
+// Couchbase Mobile replication protocol.
+func NewContextCustomID(id string, appProtocolId string) *Context {
 	return &Context{
-		HandlerForProfile: map[string]Handler{},
-		Logger:            logPrintfWrapper(),
-		ID:                id,
+		HandlerForProfile:    map[string]Handler{},
+		Logger:               logPrintfWrapper(),
+		ID:                   id,
+		WebSocketSubProtocol: NewWebSocketSubProtocol(appProtocolId),
 	}
 }
 
@@ -78,7 +88,7 @@ func (context *Context) Dial(url string, origin string) (*Sender, error) {
 // Opens a BLIP connection to a host given a websocket.Config, which allows
 // the caller to specify Authorization header.
 func (context *Context) DialConfig(config *websocket.Config) (*Sender, error) {
-	config.Protocol = []string{WebSocketProtocolName}
+	config.Protocol = []string{context.WebSocketSubProtocol}
 	ws, err := websocket.DialConfig(config)
 	if err != nil {
 		return nil, err
@@ -107,11 +117,11 @@ type WSHandshake func(*websocket.Config, *http.Request) error
 func (context *Context) WebSocketHandshake() WSHandshake {
 	return func(config *websocket.Config, rq *http.Request) error {
 		protocolHeader := rq.Header.Get("Sec-WebSocket-Protocol")
-		if !includesProtocol(protocolHeader, WebSocketProtocolName) {
-			context.log("Error: Client doesn't support WS protocol %s, only %s", WebSocketProtocolName, protocolHeader)
-			return &websocket.ProtocolError{"I only speak " + WebSocketProtocolName + " protocol"}
+		if !includesProtocol(protocolHeader, context.WebSocketSubProtocol) {
+			context.log("Error: Client doesn't support WS protocol %s, only %s", context.WebSocketSubProtocol, protocolHeader)
+			return &websocket.ProtocolError{"I only speak " + context.WebSocketSubProtocol + " protocol"}
 		}
-		config.Protocol = []string{WebSocketProtocolName}
+		config.Protocol = []string{context.WebSocketSubProtocol}
 		return nil
 	}
 }
