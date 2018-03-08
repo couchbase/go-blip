@@ -149,6 +149,9 @@ func (q *messageQueue) stop() {
 	// a goroutine may be blocked on the reader, thus causing a resource leak.  Added during SG #3268
 	// diagnosis, but does not fix any reproducible issues.
 	for _, message := range q.queue {
+		if message.reader == nil {
+			continue
+		}
 		err := message.reader.Close()
 		if err != nil {
 			q.logContext.logMessage("Warning: messageQueue encountered error closing message reader while stopping. Error: %v", err)
