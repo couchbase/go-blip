@@ -168,6 +168,7 @@ func (r *receiver) handleIncomingFrame(frame []byte) error {
 	} else {
 		// Regular frames have a checksum:
 		bufferedFrame := r.frameBuffer.Bytes()
+		frameSize := len(bufferedFrame)
 		if len(frame) < checksumLength {
 			return fmt.Errorf("Illegally short frame")
 		}
@@ -193,11 +194,11 @@ func (r *receiver) handleIncomingFrame(frame []byte) error {
 			return err
 		}
 
-		return r.processFrame(requestNumber, flags, body)
+		return r.processFrame(requestNumber, flags, body, frameSize)
 	}
 }
 
-func (r *receiver) processFrame(requestNumber MessageNumber, flags frameFlags, frame []byte) error {
+func (r *receiver) processFrame(requestNumber MessageNumber, flags frameFlags, frame []byte, frameSize int) error {
 	// Look up or create the writer stream for this message:
 	complete := (flags & kMoreComing) == 0
 	var msgStream *msgStreamer
@@ -215,7 +216,7 @@ func (r *receiver) processFrame(requestNumber MessageNumber, flags frameFlags, f
 
 	// Write the decoded frame body to the stream:
 	if msgStream != nil {
-		if frameSize, err := writeFull(frame, msgStream.writer); err != nil {
+		if _, err := writeFull(frame, msgStream.writer); err != nil {
 			return err
 		} else if complete {
 			if err = msgStream.writer.Close(); err != nil {
