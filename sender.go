@@ -103,8 +103,6 @@ func (sender *Sender) Stop() {
 		sender.receiver.stop()
 	}
 
-
-
 }
 
 func (sender *Sender) Close() {
@@ -149,6 +147,7 @@ func (sender *Sender) start() {
 			i += binary.PutUvarint(header[i:], uint64(flags))
 			frameBuffer.Write(header[:i])
 
+			bytesSent := frameBuffer.Len()
 			if msgType := msg.Type(); msgType.isAck() {
 				// ACKs don't go through the codec nor contain a checksum:
 				frameBuffer.Write(body)
@@ -159,6 +158,7 @@ func (sender *Sender) start() {
 				binary.BigEndian.PutUint32(checksum[:], frameEncoder.getChecksum())
 				frameBuffer.Write(checksum[:])
 			}
+			bytesSent = frameBuffer.Len() - bytesSent
 
 			_, err := sender.conn.Write(frameBuffer.Bytes()) // See #19 for details on why it ignores num bytes written.
 			if err != nil {
@@ -167,10 +167,10 @@ func (sender *Sender) start() {
 			frameBuffer.Reset()
 
 			if (flags & kMoreComing) != 0 {
-				if len(body) == 0 {
+				if bytesSent == 0 {
 					panic("empty frame should not have moreComing")
 				}
-				sender.requeue(msg, uint64(len(body)))
+				sender.requeue(msg, uint64(bytesSent))
 			}
 		}
 		returnCompressor(frameEncoder)
@@ -239,7 +239,7 @@ func (sender *Sender) sendAck(msgNo MessageNumber, msgType MessageType, bytesRec
 	i := binary.PutUvarint(buffer[:], uint64(msgNo))
 	i += binary.PutUvarint(buffer[i:], uint64(flags))
 	i += binary.PutUvarint(buffer[i:], uint64(bytesReceived))
-	_, err := sender.conn.Write(buffer[0:i])  // See #19 for details on why it ignores num bytes written.
+	_, err := sender.conn.Write(buffer[0:i]) // See #19 for details on why it ignores num bytes written.
 	if err != nil {
 		sender.context.logFrame("Sender error writing ack. Error: %v", err)
 	}
