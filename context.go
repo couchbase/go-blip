@@ -11,11 +11,7 @@ import (
 	"golang.org/x/net/websocket"
 )
 
-// A function that handles an incoming BLIP request and optionally sends a response.
-// A handler is called on a new goroutine so it can take as long as it needs to.
-// For example, if it has to send a synchronous network request before it can construct
-// a response, that's fine.
-type Handler func(request *Message)
+
 
 // Utility function that responds to a Message with a 404 error.
 func Unhandled(request *Message) {
@@ -29,7 +25,7 @@ type Context struct {
 	// Client request must indicate that it supports this protocol, else WebSocket handshake will fail.
 	WebSocketSubProtocol string
 
-	HandlerForProfile map[string]Handler // Handler function for a request Profile
+	HandlerForProfile *HandlerForProfile // Handler function for a request Profile
 	DefaultHandler    Handler            // Handler for all otherwise unhandled requests
 	FatalErrorHandler func(error)        // Called when connection has a fatal error
 	MaxSendQueueCount int                // Max # of messages being sent at once (if >0)
@@ -62,7 +58,7 @@ func NewContext(appProtocolId string) *Context {
 // Couchbase Mobile replication protocol.
 func NewContextCustomID(id string, appProtocolId string) *Context {
 	return &Context{
-		HandlerForProfile:    map[string]Handler{},
+		HandlerForProfile:    NewHandlerForProfile(),
 		Logger:               logPrintfWrapper(),
 		ID:                   id,
 		WebSocketSubProtocol: NewWebSocketSubProtocol(appProtocolId),
@@ -170,7 +166,7 @@ func (context *Context) dispatchRequest(request *Message, sender *Sender) {
 	}()
 
 	context.logMessage("Incoming BLIP Request: %s", request)
-	handler := context.HandlerForProfile[request.Properties["Profile"]]
+	handler := context.HandlerForProfile.GetHandler(request.Properties["Profile"])
 	if handler == nil {
 		handler = context.DefaultHandler
 		if handler == nil {
