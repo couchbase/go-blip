@@ -189,7 +189,7 @@ func (r *receiver) handleIncomingFrame(frame []byte) error {
 			body, err = r.frameDecoder.passthrough(r.frameBuffer.Bytes(), &checksum)
 		}
 		if err != nil {
-			r.context.log("Error decompressing frame %s: %v. Raw frame = <%x>",
+			r.context.log("Error receiving frame %s: %v. Raw frame = <%x>",
 				frameString(requestNumber, flags), err, frame)
 			return err
 		}
