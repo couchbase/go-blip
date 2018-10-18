@@ -180,7 +180,9 @@ func (m *Message) ReadJSONBody(value interface{}) error {
 	if bodyReader, err := m.BodyReader(); err != nil {
 		return err
 	} else {
-		return json.NewDecoder(bodyReader).Decode(value)
+		decoder := json.NewDecoder(bodyReader)
+		decoder.UseNumber()
+		return decoder.Decode(value)
 	}
 }
 
