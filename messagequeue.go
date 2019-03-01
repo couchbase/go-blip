@@ -29,7 +29,7 @@ func (q *messageQueue) _push(msg *Message, new bool) bool { // requires lock
 		panic("Not an outgoing message")
 	}
 
-	if q.queue == nil {
+	if q.isStopped() {
 		return false
 	}
 	q.logContext.logFrame("Push %v", msg)
@@ -80,6 +80,11 @@ func (q *messageQueue) push(msg *Message) bool {
 func (q *messageQueue) pushWithCallback(msg *Message, prepushCallback MessageCallback) bool {
 	q.cond.L.Lock()
 	defer q.cond.L.Unlock()
+
+	// Exit early if we know the queue has already been stopped
+	if q.isStopped() {
+		return false
+	}
 
 	isNew := msg.number == 0
 	if isNew {
@@ -162,6 +167,10 @@ func (q *messageQueue) stop() {
 	q.cond.Broadcast()
 
 
+}
+
+func (q *messageQueue) isStopped() bool {
+	return q.queue == nil
 }
 
 func (q *messageQueue) nextMessageIsUrgent() bool {
