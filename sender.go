@@ -163,6 +163,9 @@ func (sender *Sender) start() {
 			_, err := sender.conn.Write(frameBuffer.Bytes()) // See #19 for details on why it ignores num bytes written.
 			if err != nil {
 				sender.context.logFrame("Sender error writing framebuffer (len=%d). Error: %v", len(frameBuffer.Bytes()), err)
+				if err := msg.Close(); err != nil {
+					sender.context.logFrame("Sender error closing message. Error: %v", err)
+				}
 			}
 			frameBuffer.Reset()
 

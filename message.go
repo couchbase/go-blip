@@ -26,12 +26,23 @@ type Message struct {
 	bytesAcked uint64
 
 	reader       io.ReadCloser // Stream that an incoming message is being read from
-	encoder      io.Reader     // Stream that an outgoing message is being written to
+	encoder      io.ReadCloser // Stream that an outgoing message is being written to
 	readingBody  bool          // True if reader stream has been accessed by client already
 	complete     bool          // Has this message been completely received?
 	response     *Message      // Response to this message, if it's a request
 	inResponseTo *Message      // Message this is a response to
 	cond         *sync.Cond    // Used to make Response() method block until response arrives
+}
+
+// Closes all resources for the message.
+func (message *Message) Close() error {
+	if message.reader != nil {
+		_ = message.reader.Close()
+	}
+	if message.encoder != nil {
+		_ = message.encoder.Close()
+	}
+	return nil
 }
 
 // Returns a string describing the message for debugging purposes
