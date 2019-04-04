@@ -35,14 +35,14 @@ type Message struct {
 }
 
 // Closes all resources for the message.
-func (message *Message) Close() error {
+func (message *Message) Close() (err error) {
 	if message.reader != nil {
-		_ = message.reader.Close()
+		err = message.reader.Close()
 	}
 	if message.encoder != nil {
-		_ = message.encoder.Close()
+		err = message.encoder.Close()
 	}
-	return nil
+	return err
 }
 
 // Returns a string describing the message for debugging purposes
