@@ -2,11 +2,12 @@ package blip
 
 import (
 	"bytes"
+	"io/ioutil"
 	"log"
 	"sync"
 	"testing"
 
-	"github.com/couchbaselabs/go.assert"
+	assert "github.com/couchbaselabs/go.assert"
 )
 
 func TestMessagePushPop(t *testing.T) {
@@ -146,7 +147,7 @@ func TestUrgentMessageOrdering(t *testing.T) { // Test passes, but some assertio
 		assert.False(t, mq.nextMessageIsUrgent())
 
 		// set the msg.encoder to something so that the next urgent message will go to the head of the line
-		msg.encoder = &bytes.Buffer{}
+		msg.encoder = ioutil.NopCloser(&bytes.Buffer{})
 
 	}
 
