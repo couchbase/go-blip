@@ -149,23 +149,18 @@ func (q *messageQueue) stop() {
 	q.cond.L.Lock()
 	defer q.cond.L.Unlock()
 
-
 	// Iterate over messages and call close on every message's readcloser, since it's possible that
 	// a goroutine may be blocked on the reader, thus causing a resource leak.  Added during SG #3268
 	// diagnosis, but does not fix any reproducible issues.
 	for _, message := range q.queue {
-		if message.reader == nil {
-			continue
-		}
-		err := message.reader.Close()
+		err := message.Close()
 		if err != nil {
-			q.logContext.logMessage("Warning: messageQueue encountered error closing message reader while stopping. Error: %v", err)
+			q.logContext.logMessage("Warning: messageQueue encountered error closing message while stopping. Error: %v", err)
 		}
 	}
 
 	q.queue = nil
 	q.cond.Broadcast()
-
 
 }
 
