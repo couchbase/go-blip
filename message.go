@@ -202,11 +202,17 @@ func (m *Message) ReadJSONBody(value interface{}) error {
 func (m *Message) SetJSONBody(value interface{}) error {
 	body, err := json.Marshal(value)
 	if err == nil {
-		m.SetBody(body)
-		m.Properties["Content-Type"] = "application/json"
-		m.SetCompressed(true)
+		m.SetJSONBodyAsBytes(body)
 	}
 	return err
+}
+
+// Sets the message body to JSON given by the byte slice.
+// As a convenience this also sets the "Content-Type" property to "application/json".
+func (m *Message) SetJSONBodyAsBytes(jsonBytes []byte) {
+	m.SetBody(jsonBytes)
+	m.Properties["Content-Type"] = "application/json"
+	m.SetCompressed(true)
 }
 
 // Returns the response message to this request. Its properties and body are initially empty.
