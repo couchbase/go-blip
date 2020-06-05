@@ -9,7 +9,6 @@ import (
 	"runtime/debug"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"golang.org/x/net/websocket"
 )
@@ -126,27 +125,7 @@ func (r *receiver) stop() {
 	// (Gorilla's WebSocket package does...) This isn't harmful, it just means the peer won't know
 	// the exact reason the connection closed.
 
-	r.waitForZeroActiveGoroutines()
-}
-
-// waitForZeroActiveGoroutines blocks until either the number of activeGoroutines has reached zero, or we give up waiting.
-func (r *receiver) waitForZeroActiveGoroutines() {
-	timeout := time.After(time.Second * 5)
-	ticker := time.NewTicker(time.Millisecond * 25)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-timeout:
-			r.context.log("timed out waiting for receiver goroutines to stop")
-			return // timed out
-		case <-ticker.C:
-			if atomic.LoadInt32(&r.activeGoroutines) > 0 {
-				continue
-			}
-			return // all done
-		}
-	}
+	waitForZeroActiveGoroutines(r.context, &r.activeGoroutines)
 }
 
 func (r *receiver) closePendingResponses() {

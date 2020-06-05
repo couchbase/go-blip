@@ -8,7 +8,6 @@ import (
 	"runtime/debug"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"golang.org/x/net/websocket"
 )
@@ -107,10 +106,8 @@ func (sender *Sender) Stop() {
 	if sender.receiver != nil {
 		sender.receiver.stop()
 	}
-	for atomic.LoadInt32(&sender.activeGoroutines) > 0 {
-		time.Sleep(1 * time.Millisecond)
-	}
 
+	waitForZeroActiveGoroutines(sender.context, &sender.activeGoroutines)
 }
 
 func (sender *Sender) Close() {
