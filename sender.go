@@ -7,6 +7,7 @@ import (
 	"net"
 	"runtime/debug"
 	"sync"
+	"sync/atomic"
 
 	"golang.org/x/net/websocket"
 )
@@ -25,14 +26,15 @@ type msgKey struct {
 
 // The sending side of a BLIP connection. Used to send requests and to close the connection.
 type Sender struct {
-	context         *Context
-	conn            *websocket.Conn
-	receiver        *receiver
-	queue           *messageQueue
-	icebox          map[msgKey]*Message
-	curMsg          *Message
-	numRequestsSent MessageNumber
-	requeueLock     sync.Mutex
+	context          *Context
+	conn             *websocket.Conn
+	receiver         *receiver
+	queue            *messageQueue
+	icebox           map[msgKey]*Message
+	curMsg           *Message
+	numRequestsSent  MessageNumber
+	requeueLock      sync.Mutex
+	activeGoroutines int32
 }
 
 func newSender(context *Context, conn *websocket.Conn, receiver *receiver) *Sender {
@@ -77,9 +79,11 @@ func (sender *Sender) send(msg *Message) bool {
 	prePushCallback := func(prePushMsg *Message) {
 		if prePushMsg.Type() == RequestType && !prePushMsg.NoReply() {
 			response := prePushMsg.createResponse()
+			atomic.AddInt32(&sender.activeGoroutines, 1)
 			writer := response.asyncRead(func(err error) {
 				// TODO: the error passed into this callback is currently being ignored.  Calling response.SetError() causes: "panic: Message can't be modified"
 				prePushMsg.responseComplete(response)
+				atomic.AddInt32(&sender.activeGoroutines, -1)
 			})
 			sender.receiver.awaitResponse(response, writer)
 		}
@@ -103,6 +107,7 @@ func (sender *Sender) Stop() {
 		sender.receiver.stop()
 	}
 
+	waitForZeroActiveGoroutines(sender.context, &sender.activeGoroutines)
 }
 
 func (sender *Sender) Close() {
