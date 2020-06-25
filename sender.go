@@ -201,9 +201,11 @@ func (sender *Sender) start() {
 			defer tick.Stop()
 			for range tick.C {
 				if err := codec.Send(sender.conn, nil); err != nil {
-					sender.context.logFrame("Sender error sending ping frame. Error: %v", err)
-					if strings.Contains(err.Error(), "use of closed network connection") {
-						// exit the goroutine if the connection has gone
+					errMsg := err.Error()
+					sender.context.logFrame("Sender error sending ping frame. Error: %s", errMsg)
+					if strings.Contains(errMsg, "use of closed network connection") ||
+						strings.Contains(errMsg, "broken pipe") ||
+						strings.Contains(errMsg, "connection reset") {
 						return
 					}
 				}
