@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"runtime/debug"
 	"strings"
+	"time"
 
 	"golang.org/x/net/websocket"
 )
@@ -36,6 +37,8 @@ type Context struct {
 	Logger            LogFn              // Logging callback; defaults to log.Printf
 	LogMessages       bool               // If true, will log about messages
 	LogFrames         bool               // If true, will log about frames (very verbose)
+
+	WebsocketPingInterval time.Duration // Time between sending ping frames (if >0)
 
 	// An identifier that uniquely defines the context.  NOTE: Random Number Generator not seeded by go-blip.
 	ID string

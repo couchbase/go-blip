@@ -6,8 +6,10 @@ import (
 	"log"
 	"net"
 	"runtime/debug"
+	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"golang.org/x/net/websocket"
 )
@@ -26,24 +28,26 @@ type msgKey struct {
 
 // The sending side of a BLIP connection. Used to send requests and to close the connection.
 type Sender struct {
-	context          *Context
-	conn             *websocket.Conn
-	receiver         *receiver
-	queue            *messageQueue
-	icebox           map[msgKey]*Message
-	curMsg           *Message
-	numRequestsSent  MessageNumber
-	requeueLock      sync.Mutex
-	activeGoroutines int32
+	context               *Context
+	conn                  *websocket.Conn
+	receiver              *receiver
+	queue                 *messageQueue
+	icebox                map[msgKey]*Message
+	curMsg                *Message
+	numRequestsSent       MessageNumber
+	requeueLock           sync.Mutex
+	activeGoroutines      int32
+	websocketPingInterval time.Duration
 }
 
 func newSender(context *Context, conn *websocket.Conn, receiver *receiver) *Sender {
 	return &Sender{
-		context:  context,
-		conn:     conn,
-		receiver: receiver,
-		queue:    newMessageQueue(context, context.MaxSendQueueCount),
-		icebox:   map[msgKey]*Message{},
+		context:               context,
+		conn:                  conn,
+		receiver:              receiver,
+		queue:                 newMessageQueue(context, context.MaxSendQueueCount),
+		icebox:                map[msgKey]*Message{},
+		websocketPingInterval: context.WebsocketPingInterval,
 	}
 }
 
@@ -184,6 +188,31 @@ func (sender *Sender) start() {
 		returnCompressor(frameEncoder)
 		sender.context.logFrame("Sender stopped")
 	}()
+
+	if sender.websocketPingInterval > 0 {
+		go func() {
+			incrSenderPingGoroutines()
+			defer decrSenderPingGoroutines()
+
+			codec := websocket.Codec{Marshal: func(v interface{}) (data []byte, payloadType byte, err error) {
+				return nil, websocket.PingFrame, nil
+			}}
+			tick := time.NewTicker(sender.websocketPingInterval)
+			defer tick.Stop()
+			for range tick.C {
+				if err := codec.Send(sender.conn, nil); err != nil {
+					sender.context.logFrame("Sender error sending ping frame. Error: %v", err)
+					if strings.Contains(err.Error(), "use of closed network connection") {
+						// exit the goroutine if the connection has gone
+						return
+					}
+				}
+				sender.context.logFrame("Sender sent ping frame")
+				incrSenderPingCount()
+			}
+		}()
+	}
+
 }
 
 //////// FLOW CONTROL:

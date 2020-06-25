@@ -1,14 +1,17 @@
 package blip
 
 import (
+	"expvar"
 	"fmt"
 	"log"
 	"net"
 	"net/http"
+	"strconv"
 	"sync"
 	"testing"
+	"time"
 
-	"github.com/couchbaselabs/go.assert"
+	assert "github.com/couchbaselabs/go.assert"
 	"golang.org/x/net/websocket"
 )
 
@@ -104,4 +107,64 @@ func TestEchoRoundTrip(t *testing.T) {
 	// Wait until all requests were sent and responded to
 	receivedRequests.Wait()
 
+}
+
+// TestSenderPing ensures a client configured with a WebsocketPingInterval sends ping frames on an otherwise idle connection.
+func TestSenderPing(t *testing.T) {
+
+	// server
+	serverCtx := NewContext(BlipTestAppProtocolId)
+	server := serverCtx.WebSocketServer()
+	defaultHandler := server.Handler
+	server.Handler = func(conn *websocket.Conn) {
+		defer func() {
+			conn.Close() // in case it wasn't closed already
+		}()
+		defaultHandler(conn)
+	}
+	http.Handle("/blip", defaultHandler)
+	listener, err := net.Listen("tcp", ":0")
+	if err != nil {
+		panic(err)
+	}
+	go func() {
+		panic(http.Serve(listener, nil))
+	}()
+
+	// client
+	clientCtx := NewContext(BlipTestAppProtocolId)
+	clientCtx.LogMessages = true
+	clientCtx.LogFrames = true
+	clientCtx.WebsocketPingInterval = time.Millisecond * 10
+
+	port := listener.Addr().(*net.TCPAddr).Port
+	destUrl := fmt.Sprintf("ws://localhost:%d/blip", port)
+
+	// client hasn't connected yet, stats are uninitialized
+	assert.Equals(t, expvarToInt64(goblipExpvar.Get("sender_ping_count")), int64(0))
+	assert.Equals(t, expvarToInt64(goblipExpvar.Get("goroutines_sender_ping")), int64(0))
+
+	sender, err := clientCtx.Dial(destUrl, "http://localhost")
+	if err != nil {
+		panic("Error opening WebSocket: " + err.Error())
+	}
+
+	time.Sleep(time.Millisecond * 50)
+
+	// an active ping goroutine with at least 1 ping sent for the above sleep
+	assert.Equals(t, expvarToInt64(goblipExpvar.Get("goroutines_sender_ping")), int64(1))
+	assert.True(t, expvarToInt64(goblipExpvar.Get("sender_ping_count")) > 0)
+
+	sender.Close()
+
+	// ensure the sender's ping goroutine has exited
+	assert.Equals(t, expvarToInt64(goblipExpvar.Get("goroutines_sender_ping")), int64(0))
+}
+
+func expvarToInt64(v expvar.Var) int64 {
+	if v == nil {
+		return 0
+	}
+	i, _ := strconv.ParseInt(v.String(), 10, 64)
+	return i
 }
