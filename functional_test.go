@@ -62,13 +62,14 @@ func TestEchoRoundTrip(t *testing.T) {
 	}
 
 	// HTTP Handler wrapping websocket server
-	http.Handle("/blip", defaultHandler)
+	mux := http.NewServeMux()
+	mux.Handle("/blip", defaultHandler)
 	listener, err := net.Listen("tcp", ":0")
 	if err != nil {
 		panic(err)
 	}
 	go func() {
-		panic(http.Serve(listener, nil))
+		panic(http.Serve(listener, mux))
 	}()
 
 	// ----------------- Setup Echo Client ----------------------------------------
@@ -122,13 +123,14 @@ func TestSenderPing(t *testing.T) {
 		}()
 		defaultHandler(conn)
 	}
-	http.Handle("/blip", defaultHandler)
+	mux := http.NewServeMux()
+	mux.Handle("/blip", defaultHandler)
 	listener, err := net.Listen("tcp", ":0")
 	if err != nil {
 		panic(err)
 	}
 	go func() {
-		panic(http.Serve(listener, nil))
+		panic(http.Serve(listener, mux))
 	}()
 
 	// client
