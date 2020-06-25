@@ -2,12 +2,15 @@ package blip
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"log"
 	"net"
 	"runtime/debug"
+	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"golang.org/x/net/websocket"
 )
@@ -26,24 +29,31 @@ type msgKey struct {
 
 // The sending side of a BLIP connection. Used to send requests and to close the connection.
 type Sender struct {
-	context          *Context
-	conn             *websocket.Conn
-	receiver         *receiver
-	queue            *messageQueue
-	icebox           map[msgKey]*Message
-	curMsg           *Message
-	numRequestsSent  MessageNumber
-	requeueLock      sync.Mutex
-	activeGoroutines int32
+	context               *Context
+	conn                  *websocket.Conn
+	receiver              *receiver
+	queue                 *messageQueue
+	icebox                map[msgKey]*Message
+	curMsg                *Message
+	numRequestsSent       MessageNumber
+	requeueLock           sync.Mutex
+	activeGoroutines      int32
+	websocketPingInterval time.Duration
+	ctx                   context.Context
+	ctxCancel             context.CancelFunc
 }
 
-func newSender(context *Context, conn *websocket.Conn, receiver *receiver) *Sender {
+func newSender(c *Context, conn *websocket.Conn, receiver *receiver) *Sender {
+	ctx, ctxCancel := context.WithCancel(context.Background())
 	return &Sender{
-		context:  context,
-		conn:     conn,
-		receiver: receiver,
-		queue:    newMessageQueue(context, context.MaxSendQueueCount),
-		icebox:   map[msgKey]*Message{},
+		context:               c,
+		conn:                  conn,
+		receiver:              receiver,
+		queue:                 newMessageQueue(c, c.MaxSendQueueCount),
+		icebox:                map[msgKey]*Message{},
+		websocketPingInterval: c.WebsocketPingInterval,
+		ctx:                   ctx,
+		ctxCancel:             ctxCancel,
 	}
 }
 
@@ -100,8 +110,9 @@ func (sender *Sender) Backlog() (incomingRequests, incomingResponses, outgoingRe
 	return
 }
 
-// Stops the sender's goroutine.
+// Stops the sender's goroutines.
 func (sender *Sender) Stop() {
+	sender.ctxCancel()
 	sender.queue.stop()
 	if sender.receiver != nil {
 		sender.receiver.stop()
@@ -184,6 +195,39 @@ func (sender *Sender) start() {
 		returnCompressor(frameEncoder)
 		sender.context.logFrame("Sender stopped")
 	}()
+
+	if sender.websocketPingInterval > 0 {
+		go func() {
+			incrSenderPingGoroutines()
+			defer decrSenderPingGoroutines()
+
+			codec := websocket.Codec{Marshal: func(v interface{}) (data []byte, payloadType byte, err error) {
+				return nil, websocket.PingFrame, nil
+			}}
+
+			tick := time.NewTicker(sender.websocketPingInterval)
+			defer tick.Stop()
+			for {
+				select {
+				case <-tick.C:
+					if err := codec.Send(sender.conn, nil); err != nil {
+						errMsg := err.Error()
+						sender.context.logFrame("Sender error sending ping frame. Error: %s", errMsg)
+						if strings.Contains(errMsg, "use of closed network connection") ||
+							strings.Contains(errMsg, "broken pipe") ||
+							strings.Contains(errMsg, "connection reset") {
+							return
+						}
+					}
+					sender.context.logFrame("Sender sent ping frame")
+					incrSenderPingCount()
+				case <-sender.ctx.Done():
+					return
+				}
+			}
+		}()
+	}
+
 }
 
 //////// FLOW CONTROL:
