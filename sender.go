@@ -2,6 +2,7 @@ package blip
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"log"
 	"net"
@@ -38,16 +39,21 @@ type Sender struct {
 	requeueLock           sync.Mutex
 	activeGoroutines      int32
 	websocketPingInterval time.Duration
+	ctx                   context.Context
+	ctxCancel             context.CancelFunc
 }
 
-func newSender(context *Context, conn *websocket.Conn, receiver *receiver) *Sender {
+func newSender(c *Context, conn *websocket.Conn, receiver *receiver) *Sender {
+	ctx, ctxCancel := context.WithCancel(context.Background())
 	return &Sender{
-		context:               context,
+		context:               c,
 		conn:                  conn,
 		receiver:              receiver,
-		queue:                 newMessageQueue(context, context.MaxSendQueueCount),
+		queue:                 newMessageQueue(c, c.MaxSendQueueCount),
 		icebox:                map[msgKey]*Message{},
-		websocketPingInterval: context.WebsocketPingInterval,
+		websocketPingInterval: c.WebsocketPingInterval,
+		ctx:                   ctx,
+		ctxCancel:             ctxCancel,
 	}
 }
 
@@ -104,8 +110,9 @@ func (sender *Sender) Backlog() (incomingRequests, incomingResponses, outgoingRe
 	return
 }
 
-// Stops the sender's goroutine.
+// Stops the sender's goroutines.
 func (sender *Sender) Stop() {
+	sender.ctxCancel()
 	sender.queue.stop()
 	if sender.receiver != nil {
 		sender.receiver.stop()
@@ -197,20 +204,26 @@ func (sender *Sender) start() {
 			codec := websocket.Codec{Marshal: func(v interface{}) (data []byte, payloadType byte, err error) {
 				return nil, websocket.PingFrame, nil
 			}}
+
 			tick := time.NewTicker(sender.websocketPingInterval)
 			defer tick.Stop()
-			for range tick.C {
-				if err := codec.Send(sender.conn, nil); err != nil {
-					errMsg := err.Error()
-					sender.context.logFrame("Sender error sending ping frame. Error: %s", errMsg)
-					if strings.Contains(errMsg, "use of closed network connection") ||
-						strings.Contains(errMsg, "broken pipe") ||
-						strings.Contains(errMsg, "connection reset") {
-						return
+			for {
+				select {
+				case <-tick.C:
+					if err := codec.Send(sender.conn, nil); err != nil {
+						errMsg := err.Error()
+						sender.context.logFrame("Sender error sending ping frame. Error: %s", errMsg)
+						if strings.Contains(errMsg, "use of closed network connection") ||
+							strings.Contains(errMsg, "broken pipe") ||
+							strings.Contains(errMsg, "connection reset") {
+							return
+						}
 					}
+					sender.context.logFrame("Sender sent ping frame")
+					incrSenderPingCount()
+				case <-sender.ctx.Done():
+					return
 				}
-				sender.context.logFrame("Sender sent ping frame")
-				incrSenderPingCount()
 			}
 		}()
 	}
