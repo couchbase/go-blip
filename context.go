@@ -111,7 +111,9 @@ func (context *Context) DialConfig(config *websocket.Config) (*Sender, error) {
 		err := sender.receiver.receiveLoop()
 		if err != nil {
 			context.log("BLIP/Websocket receiveLoop exited: %v", err)
-			context.OnExitCallback()
+			if context.OnExitCallback != nil {
+				context.OnExitCallback()
+			}
 		}
 	}()
 	return sender, nil
