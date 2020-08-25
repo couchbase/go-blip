@@ -38,6 +38,8 @@ type Context struct {
 	LogMessages       bool               // If true, will log about messages
 	LogFrames         bool               // If true, will log about frames (very verbose)
 
+	OnExitCallback func() // OnExitCallback callback invoked when the underlying connection closes and the receive loop exits.
+
 	WebsocketPingInterval time.Duration // Time between sending ping frames (if >0)
 
 	// An identifier that uniquely defines the context.  NOTE: Random Number Generator not seeded by go-blip.
@@ -109,6 +111,7 @@ func (context *Context) DialConfig(config *websocket.Config) (*Sender, error) {
 		err := sender.receiver.receiveLoop()
 		if err != nil {
 			context.log("BLIP/Websocket receiveLoop exited: %v", err)
+			context.OnExitCallback()
 		}
 	}()
 	return sender, nil
