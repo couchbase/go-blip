@@ -62,24 +62,25 @@ func (r *receiver) receiveLoop() error {
 	defer close(r.channel)
 
 	for {
-		select {
-		case err := <-r.parseError:
-			return err
-		default:
-			// Receive the next raw WebSocket frame:
-			var frame []byte
-			if err := websocket.Message.Receive(r.conn, &frame); err != nil {
-				if err == io.EOF {
-					r.context.logFrame("receiveLoop stopped")
-				} else if parseErr := errorFromChannel(r.parseError); parseErr != nil {
-					err = parseErr
-				} else {
-					r.context.log("Error: receiveLoop exiting with WebSocket error: %v", err)
-				}
-				return err
-			}
-			r.channel <- frame
+		if parseErr := errorFromChannel(r.parseError); parseErr != nil {
+			return parseErr
 		}
+
+		// Receive the next raw WebSocket frame:
+		var frame []byte
+		if err := websocket.Message.Receive(r.conn, &frame); err != nil {
+			if err == io.EOF {
+				r.context.logFrame("receiveLoop stopped")
+			} else if parseErr := errorFromChannel(r.parseError); parseErr != nil {
+				err = parseErr
+			} else {
+				r.context.log("Error: receiveLoop exiting with WebSocket error: %v", err)
+			}
+
+			return err
+		}
+
+		r.channel <- frame
 	}
 }
 
