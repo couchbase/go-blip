@@ -62,10 +62,6 @@ func (r *receiver) receiveLoop() error {
 	defer close(r.channel)
 
 	for {
-		if parseErr := errorFromChannel(r.parseError); parseErr != nil {
-			return parseErr
-		}
-
 		// Receive the next raw WebSocket frame:
 		var frame []byte
 		if err := websocket.Message.Receive(r.conn, &frame); err != nil {
