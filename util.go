@@ -24,3 +24,15 @@ func waitForZeroActiveGoroutines(logCtx *Context, activeGoroutines *int32) {
 		}
 	}
 }
+
+// errorFromChannel returns an error if there's one in the given channel, otherwise returns nil.
+func errorFromChannel(c chan error) error {
+	select {
+	case err := <-c:
+		if err != nil {
+			return err
+		}
+	default:
+	}
+	return nil
+}

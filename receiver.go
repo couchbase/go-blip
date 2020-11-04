@@ -71,6 +71,8 @@ func (r *receiver) receiveLoop() error {
 			if err := websocket.Message.Receive(r.conn, &frame); err != nil {
 				if err == io.EOF {
 					r.context.logFrame("receiveLoop stopped")
+				} else if parseErr := errorFromChannel(r.parseError); parseErr != nil {
+					err = parseErr
 				} else {
 					r.context.log("Error: receiveLoop exiting with WebSocket error: %v", err)
 				}
