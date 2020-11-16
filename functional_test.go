@@ -82,7 +82,7 @@ func TestEchoRoundTrip(t *testing.T) {
 		panic("Error opening WebSocket: " + err.Error())
 	}
 
-	numRequests := 50000
+	numRequests := 100
 	receivedRequests.Add(numRequests)
 
 	for i := 0; i < numRequests; i++ {
@@ -97,11 +97,23 @@ func TestEchoRoundTrip(t *testing.T) {
 		sent := sender.Send(echoRequest)
 		assert.True(t, sent)
 
-		// Read the echo response
-		response := echoRequest.Response()
-		responseBody, err := response.Body()
-		assert.True(t, err == nil)
-		assert.Equals(t, string(responseBody), "hello")
+		// Have multiple readers simultaneously trying to fetch multiple responses for each message and assert on the body.
+		// reliably triggers races on m.Response and response.Body that have been seen only rarely in Sync Gateway testing.
+		for i := 0; i < 5; i++ {
+			go func() {
+				for j := 0; j < 10; j++ {
+					go func(m *Message) {
+						response := m.Response()
+						if response == nil {
+							t.Fatalf("unexpected nil message response")
+						}
+						responseBody, err := response.Body()
+						assert.True(t, err == nil)
+						assert.Equals(t, string(responseBody), "hello")
+					}(echoRequest)
+				}
+			}()
+		}
 
 	}
 
