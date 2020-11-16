@@ -219,31 +219,38 @@ func (m *Message) SetJSONBodyAsBytes(jsonBytes []byte) {
 // Multiple calls return the same object.
 // If called on a NoReply request, this returns nil.
 func (request *Message) Response() *Message {
-	response := request.response
-	if response == nil {
-		if request.Type() != RequestType {
-			panic("Can't respond to this message")
-		}
-		if request.flags&kNoReply != 0 {
-			return nil
-		}
-		if request.number == 0 {
-			panic("Can't get response before message has been sent")
-		}
-		if request.Outgoing {
-			request.cond.L.Lock()
-			defer request.cond.L.Unlock()
-			for request.response == nil {
-				request.cond.Wait()
-			}
-			response = request.response
-		} else {
-			response = request.createResponse()
-			response.flags |= request.flags & kUrgent
-			response.Properties = Properties{}
-			request.response = response
-		}
+	if request.flags&kNoReply != 0 {
+		return nil
 	}
+	if request.Type() != RequestType {
+		panic("Can't respond to this message")
+	}
+	if request.number == 0 {
+		panic("Can't get response before message has been sent")
+	}
+
+	// block until a response has been set by responseComplete
+	if request.Outgoing {
+		request.cond.L.Lock()
+		for request.response == nil {
+			request.cond.Wait()
+		}
+		response := request.response
+		request.cond.L.Unlock()
+		return response
+	}
+
+	// request is incoming, so we need to build a response
+	request.cond.L.Lock()
+	defer request.cond.L.Unlock()
+	// if we already have a response, return it
+	if request.response != nil {
+		return request.response
+	}
+	response := request.createResponse()
+	response.flags |= request.flags & kUrgent
+	response.Properties = Properties{}
+	request.response = response
 	return response
 }
 
