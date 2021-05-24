@@ -26,9 +26,12 @@ func Unhandled(request *Message) {
 // Defines how incoming requests are dispatched to handler functions.
 type Context struct {
 
-	// The WebSocket subprotocol that this blip context is constrained to.  Eg: BLIP_3+CBMobile_2
-	// Client request must indicate that it supports this protocol, else WebSocket handshake will fail.
-	WebSocketSubProtocol string
+	// The WebSocket subprotocols that this blip context is constrained to.  Eg: BLIP_3+CBMobile_2
+	// Client request must indicate that it supports one of these protocols, else WebSocket handshake will fail.
+	SupportedSubProtocols []string
+
+	// The currently used WebSocket subprotocol by the client, set on a successful handshake.
+	activeSubProtocol string
 
 	HandlerForProfile map[string]Handler // Handler function for a request Profile
 	DefaultHandler    Handler            // Handler for all otherwise unhandled requests
@@ -57,20 +60,20 @@ type LogContext interface {
 //////// SETUP:
 
 // Creates a new Context with an empty dispatch table.
-func NewContext(appProtocolId string) *Context {
-	return NewContextCustomID(fmt.Sprintf("%x", rand.Int31()), appProtocolId)
+func NewContext(appProtocolIds ...string) *Context {
+	return NewContextCustomID(fmt.Sprintf("%x", rand.Int31()), appProtocolIds...)
 }
 
 // Creates a new Context with a custom ID, which can be helpful to differentiate logs between other blip contexts
 // in the same process. The AppProtocolId ensures that this client will only connect to peers that have agreed
 // upon the same application layer level usage of BLIP.  For example "CBMobile_2" is the AppProtocolId for the
 // Couchbase Mobile replication protocol.
-func NewContextCustomID(id string, appProtocolId string) *Context {
+func NewContextCustomID(id string, appProtocolIds ...string) *Context {
 	return &Context{
-		HandlerForProfile:    map[string]Handler{},
-		Logger:               logPrintfWrapper(),
-		ID:                   id,
-		WebSocketSubProtocol: NewWebSocketSubProtocol(appProtocolId),
+		HandlerForProfile:     map[string]Handler{},
+		Logger:                logPrintfWrapper(),
+		ID:                    id,
+		SupportedSubProtocols: FormatWebSocketSubProtocols(appProtocolIds...),
 	}
 }
 
@@ -82,18 +85,18 @@ func (context *Context) start(ws *websocket.Conn) *Sender {
 }
 
 // Opens a BLIP connection to a host.
-func (context *Context) Dial(url string, origin string) (*Sender, error) {
+func (context *Context) Dial(url string, origin string, protocol string) (*Sender, error) {
 	config, err := websocket.NewConfig(url, origin)
 	if err != nil {
 		return nil, err
 	}
-	return context.DialConfig(config)
+	return context.DialConfig(config, protocol)
 }
 
 // Opens a BLIP connection to a host given a websocket.Config, which allows
 // the caller to specify Authorization header.
-func (context *Context) DialConfig(config *websocket.Config) (*Sender, error) {
-	config.Protocol = []string{context.WebSocketSubProtocol}
+func (context *Context) DialConfig(config *websocket.Config, protocol string) (*Sender, error) {
+	config.Protocol = []string{NewWebSocketSubProtocol(protocol)}
 	ws, err := websocket.DialConfig(config)
 	if err != nil {
 		return nil, err
@@ -125,13 +128,25 @@ type WSHandshake func(*websocket.Config, *http.Request) error
 func (context *Context) WebSocketHandshake() WSHandshake {
 	return func(config *websocket.Config, rq *http.Request) error {
 		protocolHeader := rq.Header.Get("Sec-WebSocket-Protocol")
-		if !includesProtocol(protocolHeader, context.WebSocketSubProtocol) {
-			context.log("Error: Client doesn't support WS protocol %s, only %s", context.WebSocketSubProtocol, protocolHeader)
-			return &websocket.ProtocolError{"I only speak " + context.WebSocketSubProtocol + " protocol"}
+
+		protocol, found := includesProtocol(protocolHeader, context.SupportedSubProtocols)
+
+		if !found {
+			stringSeperatedProtocols := strings.Join(context.SupportedSubProtocols, ",")
+			context.log("Error: Client doesn't support any of WS protocols: %s only %s", stringSeperatedProtocols, protocolHeader)
+			return &websocket.ProtocolError{
+				ErrorString: "I only speak " + stringSeperatedProtocols + " protocols",
+			}
 		}
-		config.Protocol = []string{context.WebSocketSubProtocol}
+
+		config.Protocol = []string{protocol}
+		context.activeSubProtocol = protocol
 		return nil
 	}
+}
+
+func (context *Context) ActiveProtocol() string {
+	return ExtractAppProtocolId(context.activeSubProtocol)
 }
 
 // Creates a WebSocket connection handler that dispatches BLIP messages to the Context.
@@ -219,13 +234,15 @@ func (context *Context) logFrame(format string, params ...interface{}) {
 	}
 }
 
-func includesProtocol(header string, protocol string) bool {
+func includesProtocol(header string, protocols []string) (string, bool) {
 	for _, item := range strings.Split(header, ",") {
-		if strings.TrimSpace(item) == protocol {
-			return true
+		for _, protocol := range protocols {
+			if strings.TrimSpace(item) == protocol {
+				return protocol, true
+			}
 		}
 	}
-	return false
+	return "", false
 }
 
 //  Copyright (c) 2013 Jens Alfke. Copyright (c) 2015-2017 Couchbase, Inc.

@@ -31,7 +31,6 @@ var pendingResponses map[blip.MessageNumber]bool
 var pendingCount, sentCount int
 var mutex sync.Mutex
 
-
 func init() {
 	RootCmd.AddCommand(sendCmd)
 }
@@ -50,11 +49,11 @@ func sender() {
 	runtime.GOMAXPROCS(maxProcs)
 	log.Printf("Set GOMAXPROCS to %d", maxProcs)
 
-	context := blip.NewContext(BlipExampleAppProtocolId)
+	context := blip.NewContext()
 	context.MaxSendQueueCount = kMaxSendQueueCount
 	context.LogMessages = verbosity > 1
 	context.LogFrames = verbosity > 2
-	sender, err := context.Dial("ws://localhost:12345/test", "http://localhost")
+	sender, err := context.Dial("ws://localhost:12345/test", "http://localhost", BlipExampleAppProtocolId)
 	if err != nil {
 		panic("Error opening WebSocket: " + err.Error())
 	}
@@ -187,7 +186,6 @@ func getPendingCount() int {
 	defer mutex.Unlock()
 	return pendingCount
 }
-
 
 //  Copyright (c) 2013 Jens Alfke.
 //  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file

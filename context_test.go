@@ -9,7 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/couchbaselabs/go.assert"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"golang.org/x/net/websocket"
 )
 
@@ -87,10 +88,10 @@ func TestServerAbruptlyCloseConnectionBehavior(t *testing.T) {
 
 	// ----------------- Setup Echo Client ----------------------------------------
 
-	blipContextEchoClient := NewContext(BlipTestAppProtocolId)
+	blipContextEchoClient := NewContext()
 	port := listener.Addr().(*net.TCPAddr).Port
 	destUrl := fmt.Sprintf("ws://localhost:%d/TestServerAbruptlyCloseConnectionBehavior", port)
-	sender, err := blipContextEchoClient.Dial(destUrl, "http://localhost")
+	sender, err := blipContextEchoClient.Dial(destUrl, "http://localhost", BlipTestAppProtocolId)
 	if err != nil {
 		panic("Error opening WebSocket: " + err.Error())
 	}
@@ -244,10 +245,10 @@ func TestClientAbruptlyCloseConnectionBehavior(t *testing.T) {
 
 	// ----------------- Setup Echo Client ----------------------------------------
 
-	blipContextEchoClient := NewContext(BlipTestAppProtocolId)
+	blipContextEchoClient := NewContext()
 	port := listener.Addr().(*net.TCPAddr).Port
 	destUrl := fmt.Sprintf("ws://localhost:%d/TestClientAbruptlyCloseConnectionBehavior", port)
-	sender, err := blipContextEchoClient.Dial(destUrl, "http://localhost")
+	sender, err := blipContextEchoClient.Dial(destUrl, "http://localhost", BlipTestAppProtocolId)
 	if err != nil {
 		panic("Error opening WebSocket: " + err.Error())
 	}
@@ -285,7 +286,7 @@ func TestClientAbruptlyCloseConnectionBehavior(t *testing.T) {
 
 	// Assertions about echo response (these might need to be altered, maybe what's expected in this scenario is actually an error)
 	assert.True(t, err == nil)
-	assert.Equals(t, string(responseBody), "hello")
+	assert.Equal(t, string(responseBody), "hello")
 
 	// Wait until the amplify request was received by client (from server), and that the server read the response
 	WaitWithTimeout(&echoAmplifyRoundTripComplete, time.Second*60)
@@ -318,10 +319,85 @@ func TestIncludesProtocol(t *testing.T) {
 	}
 
 	for _, headerWithExpectedResponse := range headersWithExpectedResponses {
-		matched := includesProtocol(headerWithExpectedResponse.Header, BlipTestAppProtocolId)
-		assert.Equals(t, matched, headerWithExpectedResponse.ExpectedResponse)
+		_, matched := includesProtocol(headerWithExpectedResponse.Header, []string{BlipTestAppProtocolId})
+		assert.Equal(t, matched, headerWithExpectedResponse.ExpectedResponse)
 	}
 
+}
+
+func TestUnsupportedSubProtocol(t *testing.T) {
+	testCases := []struct {
+		Name            string
+		ServerProtocols []string
+		ClientProtocol  string
+		ActiveProtocol  string
+		ExpectError     bool
+	}{
+		{
+			Name:            "Unsupported",
+			ServerProtocols: []string{"V2"},
+			ClientProtocol:  "V1",
+			ActiveProtocol:  "",
+			ExpectError:     true,
+		},
+		{
+			Name:            "SupportedOne",
+			ServerProtocols: []string{"V1"},
+			ClientProtocol:  "V1",
+			ActiveProtocol:  "V1",
+			ExpectError:     false,
+		},
+		{
+			Name:            "SupportedTwo",
+			ServerProtocols: []string{"V1", "V2"},
+			ActiveProtocol:  "V1",
+			ClientProtocol:  "V1",
+			ExpectError:     false,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.Name, func(t *testing.T) {
+			serverCtx := NewContext(testCase.ServerProtocols...)
+			serverCtx.LogMessages = true
+			serverCtx.LogFrames = true
+
+			server := serverCtx.WebSocketServer()
+			defaultHandler := server.Handler
+			server.Handler = func(conn *websocket.Conn) {
+				defer func() {
+					conn.Close()
+				}()
+				defaultHandler(conn)
+			}
+
+			mux := http.NewServeMux()
+			mux.Handle("/someBlip", server)
+			listener, err := net.Listen("tcp", ":0")
+			require.NoError(t, err)
+
+			go func() {
+				err := http.Serve(listener, mux)
+				require.NoError(t, err)
+			}()
+
+			// Client
+			client := NewContext()
+			port := listener.Addr().(*net.TCPAddr).Port
+			destUrl := fmt.Sprintf("ws://localhost:%d/someBlip", port)
+			_, err = client.Dial(destUrl, "http://localhost", testCase.ClientProtocol)
+
+			if testCase.ExpectError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+
+			if testCase.ActiveProtocol != "" {
+				assert.Equal(t, testCase.ActiveProtocol, serverCtx.ActiveProtocol())
+			}
+		})
+	}
 }
 
 // Wait for the WaitGroup, or return an error if the wg.Wait() doesn't return within timeout

@@ -1,6 +1,9 @@
 package blip
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // WebSocket [sub]protocol prefix for BLIP, used during WebSocket handshake.
 // Client request must indicate that it supports this protocol, else the handshake will fail.
@@ -71,9 +74,26 @@ func (f frameFlags) messageType() MessageType {
 
 ///////// HELPER UTILS:
 
+func FormatWebSocketSubProtocols(AppProtocolIds ...string) []string {
+	formattedProtocols := make([]string, len(AppProtocolIds))
+	for i, protocol := range AppProtocolIds {
+		formattedProtocols[i] = NewWebSocketSubProtocol(protocol)
+	}
+	return formattedProtocols
+}
+
 // Create a new Websocket subprotocol using the given application protocol identifier.
 func NewWebSocketSubProtocol(AppProtocolId string) string {
 	return fmt.Sprintf("%s+%s", WebSocketSubProtocolPrefix, AppProtocolId)
+}
+
+// Extracts subprotocol from the above format
+func ExtractAppProtocolId(protocol string) string {
+	splitString := strings.SplitN(protocol, "+", 2)
+	if len(splitString) == 2 {
+		return splitString[1]
+	}
+	return ""
 }
 
 //  Copyright (c) 2013 Jens Alfke. Copyright (c) 2015-2017 Couchbase, Inc.
