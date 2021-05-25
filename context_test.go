@@ -9,8 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	assert "github.com/couchbaselabs/go.assert"
 	"golang.org/x/net/websocket"
 )
 
@@ -286,7 +285,7 @@ func TestClientAbruptlyCloseConnectionBehavior(t *testing.T) {
 
 	// Assertions about echo response (these might need to be altered, maybe what's expected in this scenario is actually an error)
 	assert.True(t, err == nil)
-	assert.Equal(t, string(responseBody), "hello")
+	assert.Equals(t, string(responseBody), "hello")
 
 	// Wait until the amplify request was received by client (from server), and that the server read the response
 	WaitWithTimeout(&echoAmplifyRoundTripComplete, time.Second*60)
@@ -320,7 +319,7 @@ func TestIncludesProtocol(t *testing.T) {
 
 	for _, headerWithExpectedResponse := range headersWithExpectedResponses {
 		_, matched := includesProtocol(headerWithExpectedResponse.Header, []string{BlipTestAppProtocolId})
-		assert.Equal(t, matched, headerWithExpectedResponse.ExpectedResponse)
+		assert.Equals(t, matched, headerWithExpectedResponse.ExpectedResponse)
 	}
 
 }
@@ -374,11 +373,15 @@ func TestUnsupportedSubProtocol(t *testing.T) {
 			mux := http.NewServeMux()
 			mux.Handle("/someBlip", server)
 			listener, err := net.Listen("tcp", ":0")
-			require.NoError(t, err)
+			if err != nil {
+				panic(err)
+			}
 
 			go func() {
 				err := http.Serve(listener, mux)
-				require.NoError(t, err)
+				if err != nil {
+					panic(err)
+				}
 			}()
 
 			// Client
@@ -388,13 +391,13 @@ func TestUnsupportedSubProtocol(t *testing.T) {
 			_, err = client.Dial(destUrl, "http://localhost", testCase.ClientProtocol)
 
 			if testCase.ExpectError {
-				assert.Error(t, err)
+				assert.True(t, err != nil)
 			} else {
-				assert.NoError(t, err)
+				assert.Equals(t, err, nil)
 			}
 
 			if testCase.ActiveProtocol != "" {
-				assert.Equal(t, testCase.ActiveProtocol, serverCtx.ActiveProtocol())
+				assert.Equals(t, serverCtx.ActiveProtocol(), testCase.ActiveProtocol)
 			}
 		})
 	}

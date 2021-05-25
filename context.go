@@ -85,18 +85,19 @@ func (context *Context) start(ws *websocket.Conn) *Sender {
 }
 
 // Opens a BLIP connection to a host.
-func (context *Context) Dial(url string, origin string, protocol string) (*Sender, error) {
+func (context *Context) Dial(url string, origin string, appProtocolId string) (*Sender, error) {
 	config, err := websocket.NewConfig(url, origin)
 	if err != nil {
 		return nil, err
 	}
-	return context.DialConfig(config, protocol)
+	return context.DialConfig(config, appProtocolId)
 }
 
 // Opens a BLIP connection to a host given a websocket.Config, which allows
 // the caller to specify Authorization header.
-func (context *Context) DialConfig(config *websocket.Config, protocol string) (*Sender, error) {
-	config.Protocol = []string{NewWebSocketSubProtocol(protocol)}
+func (context *Context) DialConfig(config *websocket.Config, appProtocolId string) (*Sender, error) {
+	subProtocol := NewWebSocketSubProtocol(appProtocolId)
+	config.Protocol = []string{subProtocol}
 	ws, err := websocket.DialConfig(config)
 	if err != nil {
 		return nil, err
@@ -119,6 +120,7 @@ func (context *Context) DialConfig(config *websocket.Config, protocol string) (*
 			}
 		}
 	}()
+	context.activeSubProtocol = subProtocol
 	return sender, nil
 }
 
@@ -145,6 +147,8 @@ func (context *Context) WebSocketHandshake() WSHandshake {
 	}
 }
 
+// ActiveProtocol returns the currently used WebSocket subprotocol for the Context, set after a successful handshake in
+// the case of a host or a successful Dial in the case of a client.
 func (context *Context) ActiveProtocol() string {
 	return ExtractAppProtocolId(context.activeSubProtocol)
 }
