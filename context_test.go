@@ -326,32 +326,46 @@ func TestIncludesProtocol(t *testing.T) {
 
 func TestUnsupportedSubProtocol(t *testing.T) {
 	testCases := []struct {
-		Name            string
-		ServerProtocols []string
-		ClientProtocol  string
-		ActiveProtocol  string
-		ExpectError     bool
+		Name                 string
+		ServerProtocols      []string
+		ClientProtocol       []string
+		ActiveServerProtocol string
+		ExpectError          bool
 	}{
 		{
-			Name:            "Unsupported",
-			ServerProtocols: []string{"V2"},
-			ClientProtocol:  "V1",
-			ActiveProtocol:  "",
-			ExpectError:     true,
+			Name:                 "Unsupported",
+			ServerProtocols:      []string{"V2"},
+			ClientProtocol:       []string{"V1"},
+			ActiveServerProtocol: "",
+			ExpectError:          true,
 		},
 		{
-			Name:            "SupportedOne",
-			ServerProtocols: []string{"V1"},
-			ClientProtocol:  "V1",
-			ActiveProtocol:  "V1",
-			ExpectError:     false,
+			Name:                 "SupportedOne",
+			ServerProtocols:      []string{"V1"},
+			ClientProtocol:       []string{"V1"},
+			ActiveServerProtocol: "V1",
+			ExpectError:          false,
 		},
 		{
-			Name:            "SupportedTwo",
-			ServerProtocols: []string{"V1", "V2"},
-			ActiveProtocol:  "V1",
-			ClientProtocol:  "V1",
-			ExpectError:     false,
+			Name:                 "SupportedTwo",
+			ServerProtocols:      []string{"V1", "V2"},
+			ClientProtocol:       []string{"V1"},
+			ActiveServerProtocol: "V1",
+			ExpectError:          false,
+		},
+		{
+			Name:                 "ClientAndServerSupportsTwoV1First",
+			ServerProtocols:      []string{"V1", "V2"},
+			ClientProtocol:       []string{"V1", "V2"},
+			ActiveServerProtocol: "V1",
+			ExpectError:          false,
+		},
+		{
+			Name:                 "ClientAndServerSupportsTwoV2First",
+			ServerProtocols:      []string{"V1", "V2"},
+			ClientProtocol:       []string{"V2", "V1"},
+			ActiveServerProtocol: "V2",
+			ExpectError:          false,
 		},
 	}
 
@@ -388,7 +402,7 @@ func TestUnsupportedSubProtocol(t *testing.T) {
 			client := NewContext()
 			port := listener.Addr().(*net.TCPAddr).Port
 			destUrl := fmt.Sprintf("ws://localhost:%d/someBlip", port)
-			_, err = client.Dial(destUrl, "http://localhost", testCase.ClientProtocol)
+			_, err = client.Dial(destUrl, "http://localhost", testCase.ClientProtocol...)
 
 			if testCase.ExpectError {
 				assert.True(t, err != nil)
@@ -396,8 +410,9 @@ func TestUnsupportedSubProtocol(t *testing.T) {
 				assert.Equals(t, err, nil)
 			}
 
-			if testCase.ActiveProtocol != "" {
-				assert.Equals(t, serverCtx.ActiveProtocol(), testCase.ActiveProtocol)
+			if testCase.ActiveServerProtocol != "" {
+				assert.Equals(t, serverCtx.ActiveProtocol(), testCase.ActiveServerProtocol)
+				assert.Equals(t, client.ActiveProtocol(), serverCtx.ActiveProtocol())
 			}
 		})
 	}
