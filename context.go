@@ -85,8 +85,6 @@ func (context *Context) start(ws *websocket.Conn) *Sender {
 }
 
 // Opens a BLIP connection to a host.
-// appProtocolIds specifies the sub protocols the client wishes to talk in. This is an ordered list, the first protocol
-// will be the one that is attempted first
 func (context *Context) Dial(url string, origin string) (*Sender, error) {
 	config, err := websocket.NewConfig(url, origin)
 	if err != nil {
@@ -96,8 +94,6 @@ func (context *Context) Dial(url string, origin string) (*Sender, error) {
 }
 
 // Opens a BLIP connection to a host given a websocket.Config, which allows the caller to specify Authorization header.
-// appProtocolIds specifies the sub protocols the client wishes to talk in. This is an ordered list, the first protocol
-// will be the one that is attempted first
 func (context *Context) DialConfig(config *websocket.Config) (*Sender, error) {
 
 	var ws *websocket.Conn
