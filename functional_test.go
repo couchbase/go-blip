@@ -74,10 +74,10 @@ func TestEchoRoundTrip(t *testing.T) {
 
 	// ----------------- Setup Echo Client ----------------------------------------
 
-	blipContextEchoClient := NewContext()
+	blipContextEchoClient := NewContext(BlipTestAppProtocolId)
 	port := listener.Addr().(*net.TCPAddr).Port
 	destUrl := fmt.Sprintf("ws://localhost:%d/blip", port)
-	sender, err := blipContextEchoClient.Dial(destUrl, "http://localhost", BlipTestAppProtocolId)
+	sender, err := blipContextEchoClient.Dial(destUrl, "http://localhost")
 	if err != nil {
 		panic("Error opening WebSocket: " + err.Error())
 	}
@@ -146,7 +146,7 @@ func TestSenderPing(t *testing.T) {
 	}()
 
 	// client
-	clientCtx := NewContext()
+	clientCtx := NewContext(BlipTestAppProtocolId)
 	clientCtx.LogMessages = true
 	clientCtx.LogFrames = true
 	clientCtx.WebsocketPingInterval = time.Millisecond * 10
@@ -158,7 +158,7 @@ func TestSenderPing(t *testing.T) {
 	assert.Equals(t, expvarToInt64(goblipExpvar.Get("sender_ping_count")), int64(0))
 	assert.Equals(t, expvarToInt64(goblipExpvar.Get("goroutines_sender_ping")), int64(0))
 
-	sender, err := clientCtx.Dial(destUrl, "http://localhost", BlipTestAppProtocolId)
+	sender, err := clientCtx.Dial(destUrl, "http://localhost")
 	if err != nil {
 		panic("Error opening WebSocket: " + err.Error())
 	}

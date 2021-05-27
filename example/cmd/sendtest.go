@@ -49,11 +49,11 @@ func sender() {
 	runtime.GOMAXPROCS(maxProcs)
 	log.Printf("Set GOMAXPROCS to %d", maxProcs)
 
-	context := blip.NewContext()
+	context := blip.NewContext(BlipExampleAppProtocolId)
 	context.MaxSendQueueCount = kMaxSendQueueCount
 	context.LogMessages = verbosity > 1
 	context.LogFrames = verbosity > 2
-	sender, err := context.Dial("ws://localhost:12345/test", "http://localhost", BlipExampleAppProtocolId)
+	sender, err := context.Dial("ws://localhost:12345/test", "http://localhost")
 	if err != nil {
 		panic("Error opening WebSocket: " + err.Error())
 	}

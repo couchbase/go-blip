@@ -87,18 +87,18 @@ func (context *Context) start(ws *websocket.Conn) *Sender {
 // Opens a BLIP connection to a host.
 // appProtocolIds specifies the sub protocols the client wishes to talk in. This is an ordered list, the first protocol
 // will be the one that is attempted first
-func (context *Context) Dial(url string, origin string, appProtocolIds ...string) (*Sender, error) {
+func (context *Context) Dial(url string, origin string) (*Sender, error) {
 	config, err := websocket.NewConfig(url, origin)
 	if err != nil {
 		return nil, err
 	}
-	return context.DialConfig(config, appProtocolIds...)
+	return context.DialConfig(config)
 }
 
 // Opens a BLIP connection to a host given a websocket.Config, which allows the caller to specify Authorization header.
 // appProtocolIds specifies the sub protocols the client wishes to talk in. This is an ordered list, the first protocol
 // will be the one that is attempted first
-func (context *Context) DialConfig(config *websocket.Config, appProtocolIds ...string) (*Sender, error) {
+func (context *Context) DialConfig(config *websocket.Config) (*Sender, error) {
 
 	var ws *websocket.Conn
 	var err error
@@ -108,8 +108,7 @@ func (context *Context) DialConfig(config *websocket.Config, appProtocolIds ...s
 	// The first one that the server also supports will result in no error and us continuing with the function
 	// Otherwise iterate until we find one
 	// If one isn't found quit out and return the error
-	for _, subProtocol := range appProtocolIds {
-		subProtocol = NewWebSocketSubProtocol(subProtocol)
+	for _, subProtocol := range context.SupportedSubProtocols {
 		config.Protocol = []string{subProtocol}
 		ws, err = websocket.DialConfig(config)
 		if err != nil {

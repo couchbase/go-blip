@@ -87,10 +87,10 @@ func TestServerAbruptlyCloseConnectionBehavior(t *testing.T) {
 
 	// ----------------- Setup Echo Client ----------------------------------------
 
-	blipContextEchoClient := NewContext()
+	blipContextEchoClient := NewContext(BlipTestAppProtocolId)
 	port := listener.Addr().(*net.TCPAddr).Port
 	destUrl := fmt.Sprintf("ws://localhost:%d/TestServerAbruptlyCloseConnectionBehavior", port)
-	sender, err := blipContextEchoClient.Dial(destUrl, "http://localhost", BlipTestAppProtocolId)
+	sender, err := blipContextEchoClient.Dial(destUrl, "http://localhost")
 	if err != nil {
 		panic("Error opening WebSocket: " + err.Error())
 	}
@@ -244,10 +244,10 @@ func TestClientAbruptlyCloseConnectionBehavior(t *testing.T) {
 
 	// ----------------- Setup Echo Client ----------------------------------------
 
-	blipContextEchoClient := NewContext()
+	blipContextEchoClient := NewContext(BlipTestAppProtocolId)
 	port := listener.Addr().(*net.TCPAddr).Port
 	destUrl := fmt.Sprintf("ws://localhost:%d/TestClientAbruptlyCloseConnectionBehavior", port)
-	sender, err := blipContextEchoClient.Dial(destUrl, "http://localhost", BlipTestAppProtocolId)
+	sender, err := blipContextEchoClient.Dial(destUrl, "http://localhost")
 	if err != nil {
 		panic("Error opening WebSocket: " + err.Error())
 	}
@@ -399,10 +399,10 @@ func TestUnsupportedSubProtocol(t *testing.T) {
 			}()
 
 			// Client
-			client := NewContext()
+			client := NewContext(testCase.ClientProtocol...)
 			port := listener.Addr().(*net.TCPAddr).Port
 			destUrl := fmt.Sprintf("ws://localhost:%d/someBlip", port)
-			_, err = client.Dial(destUrl, "http://localhost", testCase.ClientProtocol...)
+			_, err = client.Dial(destUrl, "http://localhost")
 
 			if testCase.ExpectError {
 				assert.True(t, err != nil)
