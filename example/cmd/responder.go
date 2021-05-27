@@ -11,9 +11,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
-
 const (
-	verbosity = 0
+	verbosity  = 0
 	kInterface = ":12345"
 
 	// The application protocol id of the BLIP websocket subprotocol used by go-blip examples
@@ -41,7 +40,10 @@ func responder() {
 	runtime.GOMAXPROCS(maxProcs)
 	log.Printf("Set GOMAXPROCS to %d", maxProcs)
 
-	context := blip.NewContext(BlipExampleAppProtocolId)
+	context, err := blip.NewContext(BlipExampleAppProtocolId)
+	if err != nil {
+		panic(err)
+	}
 	context.HandlerForProfile["BLIPTest/EchoData"] = dispatchEcho
 	context.LogMessages = verbosity > 1
 	context.LogFrames = verbosity > 2
@@ -51,7 +53,7 @@ func responder() {
 
 	http.Handle("/test", context.HTTPHandler())
 	log.Printf("Listening on %s/test", kInterface)
-	err := http.ListenAndServe(kInterface, nil)
+	err = http.ListenAndServe(kInterface, nil)
 	if err != nil {
 		panic("ListenAndServe: " + err.Error())
 	}

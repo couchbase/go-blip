@@ -33,7 +33,10 @@ const BlipTestAppProtocolId = "GoBlipUnitTests"
 //
 func TestServerAbruptlyCloseConnectionBehavior(t *testing.T) {
 
-	blipContextEchoServer := NewContext(BlipTestAppProtocolId)
+	blipContextEchoServer, err := NewContext(BlipTestAppProtocolId)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	receivedRequests := sync.WaitGroup{}
 
@@ -87,7 +90,10 @@ func TestServerAbruptlyCloseConnectionBehavior(t *testing.T) {
 
 	// ----------------- Setup Echo Client ----------------------------------------
 
-	blipContextEchoClient := NewContext(BlipTestAppProtocolId)
+	blipContextEchoClient, err := NewContext(BlipTestAppProtocolId)
+	if err != nil {
+		t.Fatal(err)
+	}
 	port := listener.Addr().(*net.TCPAddr).Port
 	destUrl := fmt.Sprintf("ws://localhost:%d/TestServerAbruptlyCloseConnectionBehavior", port)
 	sender, err := blipContextEchoClient.Dial(destUrl, "http://localhost")
@@ -168,7 +174,10 @@ The test does the following steps:
 */
 func TestClientAbruptlyCloseConnectionBehavior(t *testing.T) {
 
-	blipContextEchoServer := NewContext(BlipTestAppProtocolId)
+	blipContextEchoServer, err := NewContext(BlipTestAppProtocolId)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	receivedEchoRequest := sync.WaitGroup{}
 	echoAmplifyRoundTripComplete := sync.WaitGroup{}
@@ -244,7 +253,10 @@ func TestClientAbruptlyCloseConnectionBehavior(t *testing.T) {
 
 	// ----------------- Setup Echo Client ----------------------------------------
 
-	blipContextEchoClient := NewContext(BlipTestAppProtocolId)
+	blipContextEchoClient, err := NewContext(BlipTestAppProtocolId)
+	if err != nil {
+		t.Fatal(err)
+	}
 	port := listener.Addr().(*net.TCPAddr).Port
 	destUrl := fmt.Sprintf("ws://localhost:%d/TestClientAbruptlyCloseConnectionBehavior", port)
 	sender, err := blipContextEchoClient.Dial(destUrl, "http://localhost")
@@ -371,7 +383,10 @@ func TestUnsupportedSubProtocol(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.Name, func(t *testing.T) {
-			serverCtx := NewContext(testCase.ServerProtocols...)
+			serverCtx, err := NewContext(testCase.ServerProtocols...)
+			if err != nil {
+				t.Fatal(err)
+			}
 			serverCtx.LogMessages = true
 			serverCtx.LogFrames = true
 
@@ -399,7 +414,10 @@ func TestUnsupportedSubProtocol(t *testing.T) {
 			}()
 
 			// Client
-			client := NewContext(testCase.ClientProtocol...)
+			client, err := NewContext(testCase.ClientProtocol...)
+			if err != nil {
+				t.Fatal(err)
+			}
 			port := listener.Addr().(*net.TCPAddr).Port
 			destUrl := fmt.Sprintf("ws://localhost:%d/someBlip", port)
 			_, err = client.Dial(destUrl, "http://localhost")

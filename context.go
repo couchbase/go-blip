@@ -60,7 +60,7 @@ type LogContext interface {
 //////// SETUP:
 
 // Creates a new Context with an empty dispatch table.
-func NewContext(appProtocolIds ...string) *Context {
+func NewContext(appProtocolIds ...string) (*Context, error) {
 	return NewContextCustomID(fmt.Sprintf("%x", rand.Int31()), appProtocolIds...)
 }
 
@@ -68,13 +68,17 @@ func NewContext(appProtocolIds ...string) *Context {
 // in the same process. The AppProtocolId ensures that this client will only connect to peers that have agreed
 // upon the same application layer level usage of BLIP.  For example "CBMobile_2" is the AppProtocolId for the
 // Couchbase Mobile replication protocol.
-func NewContextCustomID(id string, appProtocolIds ...string) *Context {
+func NewContextCustomID(id string, appProtocolIds ...string) (*Context, error) {
+	if len(appProtocolIds) == 0 {
+		return nil, fmt.Errorf("provided protocolIds cannot be empty")
+	}
+
 	return &Context{
 		HandlerForProfile:     map[string]Handler{},
 		Logger:                logPrintfWrapper(),
 		ID:                    id,
 		SupportedSubProtocols: FormatWebSocketSubProtocols(appProtocolIds...),
-	}
+	}, nil
 }
 
 func (context *Context) start(ws *websocket.Conn) *Sender {
