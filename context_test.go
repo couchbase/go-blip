@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/couchbaselabs/go.assert"
+	assert "github.com/couchbaselabs/go.assert"
 	"golang.org/x/net/websocket"
 )
 
@@ -48,7 +48,7 @@ func TestServerAbruptlyCloseConnectionBehavior(t *testing.T) {
 			return
 		}
 		if request.Properties["Content-Type"] != "application/octet-stream" {
-			panic(fmt.Sprintf("Incorrect properties: %#x", request.Properties))
+			t.Fatalf("Incorrect properties: %#x", request.Properties)
 		}
 		if response := request.Response(); response != nil {
 			response.SetBody(body)
@@ -79,10 +79,10 @@ func TestServerAbruptlyCloseConnectionBehavior(t *testing.T) {
 	http.Handle("/TestServerAbruptlyCloseConnectionBehavior", defaultHandler)
 	listener, err := net.Listen("tcp", ":0")
 	if err != nil {
-		panic(err)
+		t.Fatal(err)
 	}
 	go func() {
-		panic(http.Serve(listener, nil))
+		t.Error(http.Serve(listener, nil))
 	}()
 
 	// ----------------- Setup Echo Client ----------------------------------------
@@ -92,7 +92,7 @@ func TestServerAbruptlyCloseConnectionBehavior(t *testing.T) {
 	destUrl := fmt.Sprintf("ws://localhost:%d/TestServerAbruptlyCloseConnectionBehavior", port)
 	sender, err := blipContextEchoClient.Dial(destUrl, "http://localhost")
 	if err != nil {
-		panic("Error opening WebSocket: " + err.Error())
+		t.Fatalf("Error opening WebSocket: %v", err)
 	}
 
 	// Create echo request
@@ -107,7 +107,10 @@ func TestServerAbruptlyCloseConnectionBehavior(t *testing.T) {
 	assert.True(t, sent)
 
 	// Wait until the echo server profile handler was invoked and completely finished (and thus abruptly closed socket)
-	WaitWithTimeout(&receivedRequests, time.Second*60)
+	err = WaitWithTimeout(&receivedRequests, time.Second*60)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	// Read the echo response
 	response := echoRequest.Response() // <--- SG #3268 was causing this to block indefinitely
@@ -205,7 +208,7 @@ func TestClientAbruptlyCloseConnectionBehavior(t *testing.T) {
 			return
 		}
 		if request.Properties["Content-Type"] != "application/octet-stream" {
-			panic(fmt.Sprintf("Incorrect properties: %#x", request.Properties))
+			t.Fatalf("Incorrect properties: %#x", request.Properties)
 		}
 		if response := request.Response(); response != nil {
 			response.SetBody(body)
@@ -236,10 +239,10 @@ func TestClientAbruptlyCloseConnectionBehavior(t *testing.T) {
 	http.Handle("/TestClientAbruptlyCloseConnectionBehavior", defaultHandler)
 	listener, err := net.Listen("tcp", ":0")
 	if err != nil {
-		panic(err)
+		t.Fatal(err)
 	}
 	go func() {
-		panic(http.Serve(listener, nil))
+		t.Error(http.Serve(listener, nil))
 	}()
 
 	// ----------------- Setup Echo Client ----------------------------------------
@@ -249,7 +252,7 @@ func TestClientAbruptlyCloseConnectionBehavior(t *testing.T) {
 	destUrl := fmt.Sprintf("ws://localhost:%d/TestClientAbruptlyCloseConnectionBehavior", port)
 	sender, err := blipContextEchoClient.Dial(destUrl, "http://localhost")
 	if err != nil {
-		panic("Error opening WebSocket: " + err.Error())
+		t.Fatalf("Error opening WebSocket: %v", err)
 	}
 
 	// Handle EchoAmplifyData that should be initiated by server in response to getting incoming echo requests
@@ -277,7 +280,10 @@ func TestClientAbruptlyCloseConnectionBehavior(t *testing.T) {
 	assert.True(t, sent)
 
 	// Wait until the echo server profile handler was invoked and completely finished (and thus abruptly closed socket)
-	WaitWithTimeout(&receivedEchoRequest, time.Second*60)
+	err = WaitWithTimeout(&receivedEchoRequest, time.Second*60)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	// Read the echo response
 	response := echoRequest.Response()
@@ -288,8 +294,10 @@ func TestClientAbruptlyCloseConnectionBehavior(t *testing.T) {
 	assert.Equals(t, string(responseBody), "hello")
 
 	// Wait until the amplify request was received by client (from server), and that the server read the response
-	WaitWithTimeout(&echoAmplifyRoundTripComplete, time.Second*60)
-
+	err = WaitWithTimeout(&echoAmplifyRoundTripComplete, time.Second*60)
+	if err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestIncludesProtocol(t *testing.T) {
