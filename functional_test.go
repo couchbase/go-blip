@@ -22,7 +22,10 @@ import (
 // aka a "functional test".
 func TestEchoRoundTrip(t *testing.T) {
 
-	blipContextEchoServer := NewContext(BlipTestAppProtocolId)
+	blipContextEchoServer, err := NewContext(BlipTestAppProtocolId)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	receivedRequests := sync.WaitGroup{}
 
@@ -74,7 +77,10 @@ func TestEchoRoundTrip(t *testing.T) {
 
 	// ----------------- Setup Echo Client ----------------------------------------
 
-	blipContextEchoClient := NewContext(BlipTestAppProtocolId)
+	blipContextEchoClient, err := NewContext(BlipTestAppProtocolId)
+	if err != nil {
+		t.Fatal(err)
+	}
 	port := listener.Addr().(*net.TCPAddr).Port
 	destUrl := fmt.Sprintf("ws://localhost:%d/blip", port)
 	sender, err := blipContextEchoClient.Dial(destUrl, "http://localhost")
@@ -126,7 +132,10 @@ func TestEchoRoundTrip(t *testing.T) {
 func TestSenderPing(t *testing.T) {
 
 	// server
-	serverCtx := NewContext(BlipTestAppProtocolId)
+	serverCtx, err := NewContext(BlipTestAppProtocolId)
+	if err != nil {
+		t.Fatal(err)
+	}
 	server := serverCtx.WebSocketServer()
 	defaultHandler := server.Handler
 	server.Handler = func(conn *websocket.Conn) {
@@ -146,7 +155,10 @@ func TestSenderPing(t *testing.T) {
 	}()
 
 	// client
-	clientCtx := NewContext(BlipTestAppProtocolId)
+	clientCtx, err := NewContext(BlipTestAppProtocolId)
+	if err != nil {
+		t.Fatal(err)
+	}
 	clientCtx.LogMessages = true
 	clientCtx.LogFrames = true
 	clientCtx.WebsocketPingInterval = time.Millisecond * 10

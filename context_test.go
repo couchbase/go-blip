@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/couchbaselabs/go.assert"
+	assert "github.com/couchbaselabs/go.assert"
 	"golang.org/x/net/websocket"
 )
 
@@ -33,7 +33,10 @@ const BlipTestAppProtocolId = "GoBlipUnitTests"
 //
 func TestServerAbruptlyCloseConnectionBehavior(t *testing.T) {
 
-	blipContextEchoServer := NewContext(BlipTestAppProtocolId)
+	blipContextEchoServer, err := NewContext(BlipTestAppProtocolId)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	receivedRequests := sync.WaitGroup{}
 
@@ -87,7 +90,10 @@ func TestServerAbruptlyCloseConnectionBehavior(t *testing.T) {
 
 	// ----------------- Setup Echo Client ----------------------------------------
 
-	blipContextEchoClient := NewContext(BlipTestAppProtocolId)
+	blipContextEchoClient, err := NewContext(BlipTestAppProtocolId)
+	if err != nil {
+		t.Fatal(err)
+	}
 	port := listener.Addr().(*net.TCPAddr).Port
 	destUrl := fmt.Sprintf("ws://localhost:%d/TestServerAbruptlyCloseConnectionBehavior", port)
 	sender, err := blipContextEchoClient.Dial(destUrl, "http://localhost")
@@ -168,7 +174,10 @@ The test does the following steps:
 */
 func TestClientAbruptlyCloseConnectionBehavior(t *testing.T) {
 
-	blipContextEchoServer := NewContext(BlipTestAppProtocolId)
+	blipContextEchoServer, err := NewContext(BlipTestAppProtocolId)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	receivedEchoRequest := sync.WaitGroup{}
 	echoAmplifyRoundTripComplete := sync.WaitGroup{}
@@ -244,7 +253,10 @@ func TestClientAbruptlyCloseConnectionBehavior(t *testing.T) {
 
 	// ----------------- Setup Echo Client ----------------------------------------
 
-	blipContextEchoClient := NewContext(BlipTestAppProtocolId)
+	blipContextEchoClient, err := NewContext(BlipTestAppProtocolId)
+	if err != nil {
+		t.Fatal(err)
+	}
 	port := listener.Addr().(*net.TCPAddr).Port
 	destUrl := fmt.Sprintf("ws://localhost:%d/TestClientAbruptlyCloseConnectionBehavior", port)
 	sender, err := blipContextEchoClient.Dial(destUrl, "http://localhost")
@@ -318,10 +330,110 @@ func TestIncludesProtocol(t *testing.T) {
 	}
 
 	for _, headerWithExpectedResponse := range headersWithExpectedResponses {
-		matched := includesProtocol(headerWithExpectedResponse.Header, BlipTestAppProtocolId)
+		_, matched := includesProtocol(headerWithExpectedResponse.Header, []string{BlipTestAppProtocolId})
 		assert.Equals(t, matched, headerWithExpectedResponse.ExpectedResponse)
 	}
 
+}
+
+func TestUnsupportedSubProtocol(t *testing.T) {
+	testCases := []struct {
+		Name                 string
+		ServerProtocols      []string
+		ClientProtocol       []string
+		ActiveServerProtocol string
+		ExpectError          bool
+	}{
+		{
+			Name:                 "Unsupported",
+			ServerProtocols:      []string{"V2"},
+			ClientProtocol:       []string{"V1"},
+			ActiveServerProtocol: "",
+			ExpectError:          true,
+		},
+		{
+			Name:                 "SupportedOne",
+			ServerProtocols:      []string{"V1"},
+			ClientProtocol:       []string{"V1"},
+			ActiveServerProtocol: "V1",
+			ExpectError:          false,
+		},
+		{
+			Name:                 "SupportedTwo",
+			ServerProtocols:      []string{"V1", "V2"},
+			ClientProtocol:       []string{"V1"},
+			ActiveServerProtocol: "V1",
+			ExpectError:          false,
+		},
+		{
+			Name:                 "ClientAndServerSupportsTwoV1First",
+			ServerProtocols:      []string{"V1", "V2"},
+			ClientProtocol:       []string{"V1", "V2"},
+			ActiveServerProtocol: "V1",
+			ExpectError:          false,
+		},
+		{
+			Name:                 "ClientAndServerSupportsTwoV2First",
+			ServerProtocols:      []string{"V1", "V2"},
+			ClientProtocol:       []string{"V2", "V1"},
+			ActiveServerProtocol: "V2",
+			ExpectError:          false,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.Name, func(t *testing.T) {
+			serverCtx, err := NewContext(testCase.ServerProtocols...)
+			if err != nil {
+				t.Fatal(err)
+			}
+			serverCtx.LogMessages = true
+			serverCtx.LogFrames = true
+
+			server := serverCtx.WebSocketServer()
+			defaultHandler := server.Handler
+			server.Handler = func(conn *websocket.Conn) {
+				defer func() {
+					conn.Close()
+				}()
+				defaultHandler(conn)
+			}
+
+			mux := http.NewServeMux()
+			mux.Handle("/someBlip", server)
+			listener, err := net.Listen("tcp", ":0")
+			if err != nil {
+				panic(err)
+			}
+
+			go func() {
+				err := http.Serve(listener, mux)
+				if err != nil {
+					panic(err)
+				}
+			}()
+
+			// Client
+			client, err := NewContext(testCase.ClientProtocol...)
+			if err != nil {
+				t.Fatal(err)
+			}
+			port := listener.Addr().(*net.TCPAddr).Port
+			destUrl := fmt.Sprintf("ws://localhost:%d/someBlip", port)
+			_, err = client.Dial(destUrl, "http://localhost")
+
+			if testCase.ExpectError {
+				assert.True(t, err != nil)
+			} else {
+				assert.Equals(t, err, nil)
+			}
+
+			if testCase.ActiveServerProtocol != "" {
+				assert.Equals(t, serverCtx.ActiveProtocol(), testCase.ActiveServerProtocol)
+				assert.Equals(t, client.ActiveProtocol(), serverCtx.ActiveProtocol())
+			}
+		})
+	}
 }
 
 // Wait for the WaitGroup, or return an error if the wg.Wait() doesn't return within timeout
