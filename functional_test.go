@@ -40,7 +40,7 @@ func TestEchoRoundTrip(t *testing.T) {
 			return
 		}
 		if request.Properties["Content-Type"] != "application/octet-stream" {
-			panic(fmt.Sprintf("Incorrect properties: %#x", request.Properties))
+			t.Fatalf("Incorrect properties: %#x", request.Properties)
 		}
 		if response := request.Response(); response != nil {
 			response.SetBody(body)
@@ -69,10 +69,10 @@ func TestEchoRoundTrip(t *testing.T) {
 	mux.Handle("/blip", defaultHandler)
 	listener, err := net.Listen("tcp", ":0")
 	if err != nil {
-		panic(err)
+		t.Fatal(err)
 	}
 	go func() {
-		panic(http.Serve(listener, mux))
+		t.Error(http.Serve(listener, mux))
 	}()
 
 	// ----------------- Setup Echo Client ----------------------------------------
@@ -85,7 +85,7 @@ func TestEchoRoundTrip(t *testing.T) {
 	destUrl := fmt.Sprintf("ws://localhost:%d/blip", port)
 	sender, err := blipContextEchoClient.Dial(destUrl, "http://localhost")
 	if err != nil {
-		panic("Error opening WebSocket: " + err.Error())
+		t.Fatalf("Error opening WebSocket: %v", err)
 	}
 
 	numRequests := 100
@@ -111,7 +111,8 @@ func TestEchoRoundTrip(t *testing.T) {
 					go func(m *Message) {
 						response := m.Response()
 						if response == nil {
-							t.Fatalf("unexpected nil message response")
+							t.Errorf("unexpected nil message response")
+							return
 						}
 						responseBody, err := response.Body()
 						assert.True(t, err == nil)
@@ -148,10 +149,10 @@ func TestSenderPing(t *testing.T) {
 	mux.Handle("/blip", defaultHandler)
 	listener, err := net.Listen("tcp", ":0")
 	if err != nil {
-		panic(err)
+		t.Fatal(err)
 	}
 	go func() {
-		panic(http.Serve(listener, mux))
+		t.Error(http.Serve(listener, mux))
 	}()
 
 	// client
@@ -172,7 +173,7 @@ func TestSenderPing(t *testing.T) {
 
 	sender, err := clientCtx.Dial(destUrl, "http://localhost")
 	if err != nil {
-		panic("Error opening WebSocket: " + err.Error())
+		t.Fatalf("Error opening WebSocket: %v", err)
 	}
 
 	time.Sleep(time.Millisecond * 50)
