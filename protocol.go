@@ -74,7 +74,7 @@ func (f frameFlags) messageType() MessageType {
 
 ///////// HELPER UTILS:
 
-func FormatWebSocketSubProtocols(AppProtocolIds ...string) []string {
+func formatWebSocketSubProtocols(AppProtocolIds ...string) []string {
 	formattedProtocols := make([]string, len(AppProtocolIds))
 	for i, protocol := range AppProtocolIds {
 		formattedProtocols[i] = NewWebSocketSubProtocol(protocol)
@@ -88,7 +88,7 @@ func NewWebSocketSubProtocol(AppProtocolId string) string {
 }
 
 // Extracts subprotocol from the above format
-func ExtractAppProtocolId(protocol string) string {
+func extractAppProtocolId(protocol string) string {
 	splitString := strings.SplitN(protocol, "+", 2)
 	if len(splitString) == 2 {
 		return splitString[1]

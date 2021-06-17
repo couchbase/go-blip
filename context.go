@@ -77,7 +77,7 @@ func NewContextCustomID(id string, appProtocolIds ...string) (*Context, error) {
 		HandlerForProfile:     map[string]Handler{},
 		Logger:                logPrintfWrapper(),
 		ID:                    id,
-		SupportedSubProtocols: FormatWebSocketSubProtocols(appProtocolIds...),
+		SupportedSubProtocols: formatWebSocketSubProtocols(appProtocolIds...),
 	}, nil
 }
 
@@ -141,7 +141,7 @@ func (context *Context) DialConfig(config *websocket.Config) (*Sender, error) {
 			}
 		}
 	}()
-	context.activeSubProtocol = selectedSubProtocol
+	context.activeSubProtocol = extractAppProtocolId(selectedSubProtocol)
 	return sender, nil
 }
 
@@ -163,7 +163,7 @@ func (context *Context) WebSocketHandshake() WSHandshake {
 		}
 
 		config.Protocol = []string{protocol}
-		context.activeSubProtocol = protocol
+		context.activeSubProtocol = extractAppProtocolId(protocol)
 		return nil
 	}
 }
@@ -171,7 +171,7 @@ func (context *Context) WebSocketHandshake() WSHandshake {
 // ActiveProtocol returns the currently used WebSocket subprotocol for the Context, set after a successful handshake in
 // the case of a host or a successful Dial in the case of a client.
 func (context *Context) ActiveProtocol() string {
-	return ExtractAppProtocolId(context.activeSubProtocol)
+	return context.activeSubProtocol
 }
 
 // Creates a WebSocket connection handler that dispatches BLIP messages to the Context.
