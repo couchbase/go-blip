@@ -437,8 +437,8 @@ func TestUnsupportedSubProtocol(t *testing.T) {
 			}
 
 			if testCase.ActiveServerProtocol != "" {
-				assert.Equals(t, serverCtx.ActiveProtocol(), testCase.ActiveServerProtocol)
-				assert.Equals(t, client.ActiveProtocol(), serverCtx.ActiveProtocol())
+				assert.Equals(t, serverCtx.ActiveSubprotocol(), testCase.ActiveServerProtocol)
+				assert.Equals(t, client.ActiveSubprotocol(), serverCtx.ActiveSubprotocol())
 			}
 		})
 	}
