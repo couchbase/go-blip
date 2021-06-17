@@ -77,7 +77,7 @@ func NewContextCustomID(id string, appProtocolIds ...string) (*Context, error) {
 		HandlerForProfile:     map[string]Handler{},
 		Logger:                logPrintfWrapper(),
 		ID:                    id,
-		SupportedSubProtocols: FormatWebSocketSubProtocols(appProtocolIds...),
+		SupportedSubProtocols: formatWebSocketSubProtocols(appProtocolIds...),
 	}, nil
 }
 
@@ -141,7 +141,7 @@ func (context *Context) DialConfig(config *websocket.Config) (*Sender, error) {
 			}
 		}
 	}()
-	context.activeSubProtocol = ExtractAppProtocolId(selectedSubProtocol)
+	context.activeSubProtocol = extractAppProtocolId(selectedSubProtocol)
 	return sender, nil
 }
 
@@ -163,7 +163,7 @@ func (context *Context) WebSocketHandshake() WSHandshake {
 		}
 
 		config.Protocol = []string{protocol}
-		context.activeSubProtocol = ExtractAppProtocolId(protocol)
+		context.activeSubProtocol = extractAppProtocolId(protocol)
 		return nil
 	}
 }
