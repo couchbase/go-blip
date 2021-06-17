@@ -168,9 +168,9 @@ func (context *Context) WebSocketHandshake() WSHandshake {
 	}
 }
 
-// ActiveProtocol returns the currently used WebSocket subprotocol for the Context, set after a successful handshake in
+// ActiveSubprotocol returns the currently used WebSocket subprotocol for the Context, set after a successful handshake in
 // the case of a host or a successful Dial in the case of a client.
-func (context *Context) ActiveProtocol() string {
+func (context *Context) ActiveSubprotocol() string {
 	return context.activeSubProtocol
 }
 
