@@ -12,6 +12,7 @@ package blip
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -20,7 +21,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"golang.org/x/net/websocket"
+	"nhooyr.io/websocket"
 )
 
 const checksumLength = 4
@@ -73,8 +74,8 @@ func (r *receiver) receiveLoop() error {
 
 	for {
 		// Receive the next raw WebSocket frame:
-		var frame []byte
-		if err := websocket.Message.Receive(r.conn, &frame); err != nil {
+		_, frame, err := r.conn.Read(context.TODO())
+		if err != nil {
 			if err == io.EOF {
 				r.context.logFrame("receiveLoop stopped")
 			} else if parseErr := errorFromChannel(r.parseError); parseErr != nil {
@@ -131,10 +132,7 @@ func (r *receiver) stop() {
 
 	r.closePendingResponses()
 
-	r.conn.Close()
-	//TODO: Should set a WebSocket close code/msg, but websocket.Conn has no API for that
-	// (Gorilla's WebSocket package does...) This isn't harmful, it just means the peer won't know
-	// the exact reason the connection closed.
+	r.conn.Close(websocket.StatusNormalClosure, "")
 
 	waitForZeroActiveGoroutines(r.context, &r.activeGoroutines)
 }

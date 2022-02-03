@@ -20,7 +20,7 @@ import (
 	"time"
 
 	assert "github.com/couchbaselabs/go.assert"
-	"golang.org/x/net/websocket"
+	"nhooyr.io/websocket"
 )
 
 // The application protocol id of the BLIP websocket subprotocol used in go-blip unit tests
@@ -69,7 +69,7 @@ func TestServerAbruptlyCloseConnectionBehavior(t *testing.T) {
 		}
 
 		// Try closing the connection to simulate behavior seen in SG #3268
-		request.Sender.conn.Close()
+		_ = request.Sender.conn.Close(websocket.StatusNoStatusRcvd, "")
 
 	}
 
@@ -80,16 +80,9 @@ func TestServerAbruptlyCloseConnectionBehavior(t *testing.T) {
 
 	// Websocket Server
 	server := blipContextEchoServer.WebSocketServer()
-	defaultHandler := server.Handler
-	server.Handler = func(conn *websocket.Conn) {
-		defer func() {
-			conn.Close() // in case it wasn't closed already
-		}()
-		defaultHandler(conn)
-	}
 
 	// HTTP Handler wrapping websocket server
-	http.Handle("/TestServerAbruptlyCloseConnectionBehavior", defaultHandler)
+	http.Handle("/TestServerAbruptlyCloseConnectionBehavior", server)
 	listener, err := net.Listen("tcp", ":0")
 	if err != nil {
 		t.Fatal(err)
@@ -106,7 +99,7 @@ func TestServerAbruptlyCloseConnectionBehavior(t *testing.T) {
 	}
 	port := listener.Addr().(*net.TCPAddr).Port
 	destUrl := fmt.Sprintf("ws://localhost:%d/TestServerAbruptlyCloseConnectionBehavior", port)
-	sender, err := blipContextEchoClient.Dial(destUrl, "http://localhost")
+	sender, err := blipContextEchoClient.Dial(destUrl)
 	if err != nil {
 		t.Fatalf("Error opening WebSocket: %v", err)
 	}
@@ -246,16 +239,9 @@ func TestClientAbruptlyCloseConnectionBehavior(t *testing.T) {
 
 	// Websocket Server
 	server := blipContextEchoServer.WebSocketServer()
-	defaultHandler := server.Handler
-	server.Handler = func(conn *websocket.Conn) {
-		defer func() {
-			conn.Close() // in case it wasn't closed already
-		}()
-		defaultHandler(conn)
-	}
 
 	// HTTP Handler wrapping websocket server
-	http.Handle("/TestClientAbruptlyCloseConnectionBehavior", defaultHandler)
+	http.Handle("/TestClientAbruptlyCloseConnectionBehavior", server)
 	listener, err := net.Listen("tcp", ":0")
 	if err != nil {
 		t.Fatal(err)
@@ -272,7 +258,7 @@ func TestClientAbruptlyCloseConnectionBehavior(t *testing.T) {
 	}
 	port := listener.Addr().(*net.TCPAddr).Port
 	destUrl := fmt.Sprintf("ws://localhost:%d/TestClientAbruptlyCloseConnectionBehavior", port)
-	sender, err := blipContextEchoClient.Dial(destUrl, "http://localhost")
+	sender, err := blipContextEchoClient.Dial(destUrl)
 	if err != nil {
 		t.Fatalf("Error opening WebSocket: %v", err)
 	}
@@ -409,13 +395,6 @@ func TestUnsupportedSubProtocol(t *testing.T) {
 			serverCtx.LogFrames = true
 
 			server := serverCtx.WebSocketServer()
-			defaultHandler := server.Handler
-			server.Handler = func(conn *websocket.Conn) {
-				defer func() {
-					conn.Close()
-				}()
-				defaultHandler(conn)
-			}
 
 			mux := http.NewServeMux()
 			mux.Handle("/someBlip", server)
@@ -438,7 +417,7 @@ func TestUnsupportedSubProtocol(t *testing.T) {
 			}
 			port := listener.Addr().(*net.TCPAddr).Port
 			destUrl := fmt.Sprintf("ws://localhost:%d/someBlip", port)
-			_, err = client.Dial(destUrl, "http://localhost")
+			_, err = client.Dial(destUrl)
 
 			if testCase.ExpectError {
 				assert.True(t, err != nil)
