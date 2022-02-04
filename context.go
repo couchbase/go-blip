@@ -204,6 +204,8 @@ func (bwss *blipWebsocketServer) handshake(w http.ResponseWriter, r *http.Reques
 
 	ws, err := websocket.Accept(w, r, &websocket.AcceptOptions{
 		Subprotocols: []string{protocol},
+		// InsecureSkipVerify controls whether Origins are checked or not.
+		InsecureSkipVerify: true,
 	})
 	if err != nil {
 		bwss.blipCtx.FatalErrorHandler(err)
