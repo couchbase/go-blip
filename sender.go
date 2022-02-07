@@ -147,11 +147,6 @@ func (sender *Sender) start() {
 		frameBuffer := bytes.NewBuffer(make([]byte, 0, kBigFrameSize))
 		frameEncoder := getCompressor(frameBuffer)
 		for {
-			wc, err := sender.conn.Writer(sender.ctx, websocket.MessageBinary)
-			if err != nil {
-				sender.context.logFrame("Sender error opening writer. Error: %v", err)
-			}
-
 			msg := sender.popNextMessage()
 			if msg == nil {
 				break
@@ -184,8 +179,8 @@ func (sender *Sender) start() {
 			}
 			bytesSent = frameBuffer.Len() - bytesSent
 
-			// TODO: Stream framebuffer directly to wc?
-			_, err = wc.Write(frameBuffer.Bytes()) // See #19 for details on why it ignores num bytes written.
+			// TODO: Can we stream frameBuffer into a conn.Writer?
+			err := sender.conn.Write(sender.ctx, websocket.MessageBinary, frameBuffer.Bytes())
 			if err != nil {
 				sender.context.logFrame("Sender error writing framebuffer (len=%d). Error: %v", len(frameBuffer.Bytes()), err)
 				if err := msg.Close(); err != nil {
@@ -193,7 +188,6 @@ func (sender *Sender) start() {
 				}
 			}
 
-			wc.Close()
 			frameBuffer.Reset()
 
 			if (flags & kMoreComing) != 0 {
