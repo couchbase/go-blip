@@ -18,6 +18,7 @@ import (
 	"runtime"
 
 	"github.com/couchbase/go-blip"
+	"github.com/gorilla/mux"
 	"github.com/spf13/cobra"
 )
 
@@ -58,12 +59,10 @@ func responder() {
 	context.LogMessages = verbosity > 1
 	context.LogFrames = verbosity > 2
 
-	mux := blip.AddHTTPHandler(context)
-	mux.HandleFunc("/test", httpEcho)
-
-	http.Handle("/test", context.HTTPHandler())
+	mux := mux.NewRouter()
+	mux.Handle("/test", context.WebSocketServer())
 	log.Printf("Listening on %s/test", kInterface)
-	err = http.ListenAndServe(kInterface, nil)
+	err = http.ListenAndServe(kInterface, mux)
 	if err != nil {
 		panic("ListenAndServe: " + err.Error())
 	}

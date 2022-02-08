@@ -66,7 +66,7 @@ func sender() {
 	context.MaxSendQueueCount = kMaxSendQueueCount
 	context.LogMessages = verbosity > 1
 	context.LogFrames = verbosity > 2
-	sender, err := context.Dial("ws://localhost:12345/test", "http://localhost")
+	sender, err := context.Dial("ws://localhost:12345/test")
 	if err != nil {
 		panic("Error opening WebSocket: " + err.Error())
 	}

@@ -13,6 +13,8 @@ package blip
 import (
 	"bytes"
 	"testing"
+
+	assert "github.com/couchbaselabs/go.assert"
 )
 
 func init() {

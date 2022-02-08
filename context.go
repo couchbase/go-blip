@@ -11,6 +11,7 @@ licenses/APL2.txt.
 package blip
 
 import (
+	gocontext "context"
 	"fmt"
 	"io"
 	"math/rand"
@@ -19,7 +20,7 @@ import (
 	"strings"
 	"time"
 
-	"golang.org/x/net/websocket"
+	"nhooyr.io/websocket"
 )
 
 // A function that handles an incoming BLIP request and optionally sends a response.
@@ -99,28 +100,40 @@ func (context *Context) start(ws *websocket.Conn) *Sender {
 }
 
 // Opens a BLIP connection to a host.
-func (context *Context) Dial(url string, origin string) (*Sender, error) {
-	config, err := websocket.NewConfig(url, origin)
-	if err != nil {
-		return nil, err
-	}
-	return context.DialConfig(config)
+func (context *Context) Dial(url string) (*Sender, error) {
+	return context.DialConfig(&DialOptions{
+		URL: url,
+	})
 }
 
-// Opens a BLIP connection to a host given a websocket.Config, which allows the caller to specify Authorization header.
-func (context *Context) DialConfig(config *websocket.Config) (*Sender, error) {
+// DialOptions is used by DialConfig to oepn a BLIP connection.
+type DialOptions struct {
+	URL        string
+	HTTPClient *http.Client
+	HTTPHeader http.Header
+}
 
-	var ws *websocket.Conn
-	var err error
-	var selectedSubProtocol string
+// Opens a BLIP connection to a host given a DialOptions, which allows the caller to specify a custom HTTP client and headers.
+func (context *Context) DialConfig(opts *DialOptions) (*Sender, error) {
 
-	// Iterate over passed in sub protocols that the client requests
-	// The first one that the server also supports will result in no error and us continuing with the function
-	// Otherwise iterate until we find one
-	// If one isn't found quit out and return the error
+	var (
+		ws                  *websocket.Conn
+		err                 error
+		selectedSubProtocol string
+	)
+
+	wsDialOpts := websocket.DialOptions{}
+
+	if opts != nil {
+		wsDialOpts.HTTPClient = opts.HTTPClient
+		wsDialOpts.HTTPHeader = opts.HTTPHeader
+	}
+
+	// Try to dial with each SupportedSubProtocols
+	// The first one that successfully dials will be the one we'll use, otherwise we'll error.
 	for _, subProtocol := range context.SupportedSubProtocols {
-		config.Protocol = []string{subProtocol}
-		ws, err = websocket.DialConfig(config)
+		wsDialOpts.Subprotocols = []string{subProtocol}
+		ws, _, err = websocket.Dial(gocontext.TODO(), opts.URL, &wsDialOpts)
 		if err != nil {
 			continue
 		}
@@ -155,58 +168,65 @@ func (context *Context) DialConfig(config *websocket.Config) (*Sender, error) {
 	return sender, nil
 }
 
-type WSHandshake func(*websocket.Config, *http.Request) error
-
-// Creates a WebSocket handshake handler
-func (context *Context) WebSocketHandshake() WSHandshake {
-	return func(config *websocket.Config, rq *http.Request) error {
-		protocolHeader := rq.Header.Get("Sec-WebSocket-Protocol")
-
-		protocol, found := includesProtocol(protocolHeader, context.SupportedSubProtocols)
-
-		if !found {
-			stringSeperatedProtocols := strings.Join(context.SupportedSubProtocols, ",")
-			context.log("Error: Client doesn't support any of WS protocols: %s only %s", stringSeperatedProtocols, protocolHeader)
-			return &websocket.ProtocolError{
-				ErrorString: "I only speak " + stringSeperatedProtocols + " protocols",
-			}
-		}
-
-		config.Protocol = []string{protocol}
-		context.activeSubProtocol = extractAppProtocolId(protocol)
-		return nil
-	}
-}
-
 // ActiveSubprotocol returns the currently used WebSocket subprotocol for the Context, set after a successful handshake in
 // the case of a host or a successful Dial in the case of a client.
 func (context *Context) ActiveSubprotocol() string {
 	return context.activeSubProtocol
 }
 
-// Creates a WebSocket connection handler that dispatches BLIP messages to the Context.
-func (context *Context) WebSocketHandler() websocket.Handler {
-	return func(ws *websocket.Conn) {
-		context.log("Start BLIP/Websocket handler")
-		sender := context.start(ws)
-		err := sender.receiver.receiveLoop()
-		sender.Stop()
-		if err != nil && err != io.EOF {
-			context.log("BLIP/Websocket Handler exited: %v", err)
-			if context.FatalErrorHandler != nil {
-				context.FatalErrorHandler(err)
-			}
-		}
-	}
+type blipWebsocketServer struct {
+	blipCtx *Context
 }
 
 // Creates an HTTP handler that accepts WebSocket connections and dispatches BLIP messages
 // to the Context.
-func (context *Context) WebSocketServer() *websocket.Server {
-	return &websocket.Server{
-		Handshake: context.WebSocketHandshake(),
-		Handler:   context.WebSocketHandler(),
+func (context *Context) WebSocketServer() http.Handler {
+	return &blipWebsocketServer{blipCtx: context}
+}
+
+func (bwss *blipWebsocketServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	ws, err := bwss.handshake(w, r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
+	bwss.handle(ws)
+}
+
+func (bwss *blipWebsocketServer) handshake(w http.ResponseWriter, r *http.Request) (*websocket.Conn, error) {
+	protocolHeader := r.Header.Get("Sec-WebSocket-Protocol")
+	protocol, found := includesProtocol(protocolHeader, bwss.blipCtx.SupportedSubProtocols)
+	if !found {
+		stringSeperatedProtocols := strings.Join(bwss.blipCtx.SupportedSubProtocols, ",")
+		bwss.blipCtx.log("Error: Client doesn't support any of WS protocols: %s only %s", stringSeperatedProtocols, protocolHeader)
+		return nil, fmt.Errorf("I only speak %s protocols", stringSeperatedProtocols)
+	}
+
+	ws, err := websocket.Accept(w, r, &websocket.AcceptOptions{
+		Subprotocols: []string{protocol},
+		// InsecureSkipVerify controls whether Origins are checked or not.
+		InsecureSkipVerify: true,
+	})
+	if err != nil {
+		bwss.blipCtx.FatalErrorHandler(err)
+	}
+
+	bwss.blipCtx.activeSubProtocol = extractAppProtocolId(protocol)
+	return ws, nil
+}
+
+func (bwss *blipWebsocketServer) handle(ws *websocket.Conn) {
+	bwss.blipCtx.log("Start BLIP/Websocket handler")
+	sender := bwss.blipCtx.start(ws)
+	err := sender.receiver.receiveLoop()
+	sender.Stop()
+	if err != nil && err != io.EOF {
+		bwss.blipCtx.log("BLIP/Websocket Handler exited: %v", err)
+		if bwss.blipCtx.FatalErrorHandler != nil {
+			bwss.blipCtx.FatalErrorHandler(err)
+		}
+	}
+	ws.Close(websocket.StatusNormalClosure, "")
 }
 
 //////// DISPATCHING MESSAGES:

@@ -22,7 +22,6 @@ import (
 	"time"
 
 	assert "github.com/couchbaselabs/go.assert"
-	"golang.org/x/net/websocket"
 )
 
 // Round trip a high number of messages over a loopback websocket
@@ -66,17 +65,10 @@ func TestEchoRoundTrip(t *testing.T) {
 
 	// Websocket Server
 	server := blipContextEchoServer.WebSocketServer()
-	defaultHandler := server.Handler
-	server.Handler = func(conn *websocket.Conn) {
-		defer func() {
-			conn.Close() // in case it wasn't closed already
-		}()
-		defaultHandler(conn)
-	}
 
 	// HTTP Handler wrapping websocket server
 	mux := http.NewServeMux()
-	mux.Handle("/blip", defaultHandler)
+	mux.Handle("/blip", server)
 	listener, err := net.Listen("tcp", ":0")
 	if err != nil {
 		t.Fatal(err)
@@ -93,7 +85,7 @@ func TestEchoRoundTrip(t *testing.T) {
 	}
 	port := listener.Addr().(*net.TCPAddr).Port
 	destUrl := fmt.Sprintf("ws://localhost:%d/blip", port)
-	sender, err := blipContextEchoClient.Dial(destUrl, "http://localhost")
+	sender, err := blipContextEchoClient.Dial(destUrl)
 	if err != nil {
 		t.Fatalf("Error opening WebSocket: %v", err)
 	}
@@ -148,15 +140,9 @@ func TestSenderPing(t *testing.T) {
 		t.Fatal(err)
 	}
 	server := serverCtx.WebSocketServer()
-	defaultHandler := server.Handler
-	server.Handler = func(conn *websocket.Conn) {
-		defer func() {
-			conn.Close() // in case it wasn't closed already
-		}()
-		defaultHandler(conn)
-	}
+
 	mux := http.NewServeMux()
-	mux.Handle("/blip", defaultHandler)
+	mux.Handle("/blip", server)
 	listener, err := net.Listen("tcp", ":0")
 	if err != nil {
 		t.Fatal(err)
@@ -181,7 +167,7 @@ func TestSenderPing(t *testing.T) {
 	assert.Equals(t, expvarToInt64(goblipExpvar.Get("sender_ping_count")), int64(0))
 	assert.Equals(t, expvarToInt64(goblipExpvar.Get("goroutines_sender_ping")), int64(0))
 
-	sender, err := clientCtx.Dial(destUrl, "http://localhost")
+	sender, err := clientCtx.Dial(destUrl)
 	if err != nil {
 		t.Fatalf("Error opening WebSocket: %v", err)
 	}

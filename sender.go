@@ -15,14 +15,13 @@ import (
 	"context"
 	"encoding/binary"
 	"log"
-	"net"
 	"runtime/debug"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"golang.org/x/net/websocket"
+	"nhooyr.io/websocket"
 )
 
 // Size of frame to send by default. This is arbitrary.
@@ -65,11 +64,6 @@ func newSender(c *Context, conn *websocket.Conn, receiver *receiver) *Sender {
 		ctx:                   ctx,
 		ctxCancel:             ctxCancel,
 	}
-}
-
-// The IP address of the remote peer.
-func (s *Sender) RemoteAddr() net.Addr {
-	return s.conn.RemoteAddr()
 }
 
 // Sends a new outgoing request to be delivered asynchronously.
@@ -133,12 +127,11 @@ func (sender *Sender) Stop() {
 
 func (sender *Sender) Close() {
 	sender.Stop()
-	sender.conn.Close()
+	sender.conn.Close(websocket.StatusNormalClosure, "")
 }
 
 // Spawns a goroutine that will write frames to the connection until Stop() is called.
 func (sender *Sender) start() {
-	sender.conn.PayloadType = websocket.BinaryFrame
 	go func() {
 		defer func() {
 			if panicked := recover(); panicked != nil {
@@ -186,13 +179,15 @@ func (sender *Sender) start() {
 			}
 			bytesSent = frameBuffer.Len() - bytesSent
 
-			_, err := sender.conn.Write(frameBuffer.Bytes()) // See #19 for details on why it ignores num bytes written.
+			// TODO: Can we stream frameBuffer into a conn.Writer?
+			err := sender.conn.Write(sender.ctx, websocket.MessageBinary, frameBuffer.Bytes())
 			if err != nil {
 				sender.context.logFrame("Sender error writing framebuffer (len=%d). Error: %v", len(frameBuffer.Bytes()), err)
 				if err := msg.Close(); err != nil {
 					sender.context.logFrame("Sender error closing message. Error: %v", err)
 				}
 			}
+
 			frameBuffer.Reset()
 
 			if (flags & kMoreComing) != 0 {
@@ -211,16 +206,15 @@ func (sender *Sender) start() {
 			incrSenderPingGoroutines()
 			defer decrSenderPingGoroutines()
 
-			codec := websocket.Codec{Marshal: func(v interface{}) (data []byte, payloadType byte, err error) {
-				return nil, websocket.PingFrame, nil
-			}}
-
 			tick := time.NewTicker(sender.websocketPingInterval)
 			defer tick.Stop()
 			for {
 				select {
 				case <-tick.C:
-					if err := codec.Send(sender.conn, nil); err != nil {
+					if err := sender.conn.Ping(sender.ctx); err != nil {
+						if err == context.Canceled {
+							return
+						}
 						errMsg := err.Error()
 						sender.context.logFrame("Sender error sending ping frame. Error: %s", errMsg)
 						if strings.Contains(errMsg, "use of closed network connection") ||
@@ -301,7 +295,7 @@ func (sender *Sender) sendAck(msgNo MessageNumber, msgType MessageType, bytesRec
 	i := binary.PutUvarint(buffer[:], uint64(msgNo))
 	i += binary.PutUvarint(buffer[i:], uint64(flags))
 	i += binary.PutUvarint(buffer[i:], uint64(bytesReceived))
-	_, err := sender.conn.Write(buffer[0:i]) // See #19 for details on why it ignores num bytes written.
+	err := sender.conn.Write(sender.ctx, websocket.MessageBinary, buffer[0:i])
 	if err != nil {
 		sender.context.logFrame("Sender error writing ack. Error: %v", err)
 	}
