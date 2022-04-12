@@ -66,6 +66,7 @@ type LogContext interface {
 	log(fmt string, params ...interface{})
 	logMessage(fmt string, params ...interface{})
 	logFrame(fmt string, params ...interface{})
+	logTrace(fmt string, params ...interface{})
 }
 
 //////// SETUP:
@@ -287,6 +288,10 @@ func (context *Context) logFrame(format string, params ...interface{}) {
 	if context.LogFrames {
 		context.Logger(LogFrame, format, params...)
 	}
+}
+
+func (context *Context) logTrace(format string, params ...interface{}) {
+	context.Logger(LogTrace, format, params...)
 }
 
 func includesProtocol(header string, protocols []string) (string, bool) {

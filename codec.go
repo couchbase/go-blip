@@ -155,21 +155,39 @@ func (d *decompressor) decompress(input []byte, checksum uint32) ([]byte, error)
 	d.src.Write([]byte(deflateTrailer))
 
 	d.outputBuf.Reset()
+
 	// Decompress until the checksum matches and there are only a few bytes of input left:
-	for d.src.Len() > deflateTrailerLength+2 || d.getChecksum() != checksum {
+	for {
+		dSrcLen := d.src.Len()
+		if dSrcLen <= deflateTrailerLength+2 {
+			d.logContext.logTrace("d.src.Len() <= deflateTrailerLength+2 (%d <= %d)\n", dSrcLen, deflateTrailerLength+2)
+			break
+		}
+
+		dGetChecksum := d.getChecksum()
+		if dGetChecksum == checksum {
+			d.logContext.logTrace("d.getChecksum() == checksum (%x)\n", checksum)
+			break
+		}
+
 		n, err := d.z.Read(d.buffer)
+		if n != 0 && err != nil {
+			d.logContext.logTrace("FIXME: handle n > 0 before err: d.z.Read(d.buffer) got %d bytes with err: %v\n", n, err)
+		}
+
 		if err != nil {
-			d.logContext.log("ERROR decompressing frame: inputLen=%d, remaining=%d, output=%d, error=%v\n",
-				len(input), d.src.Len(), d.outputBuf.Len(), err)
+			d.logContext.log("ERROR decompressing frame: read=%d, inputLen=%d, remaining=%d, dSrcLen=%d, output=%d, checksum=%x, expectedChecksum=%x error=%v\n",
+				n, len(input), d.src.Len(), dSrcLen, d.outputBuf.Len(), dGetChecksum, checksum, err)
 			return nil, err
 		} else if n == 0 {
 			// Nothing more to read; since checksum didn't match (above), fail:
-			return nil, fmt.Errorf("Invalid checksum %x; should be %x", d.getChecksum(), checksum)
+			return nil, fmt.Errorf("Invalid checksum %x; should be %x", dGetChecksum, checksum)
 		}
 		_, _ = d.checksum.Write(d.buffer[0:n]) // Update checksum (no error possible)
 
-		//fmt.Printf("Decompressed %d bytes; %d remaining\n", n, d.src.Len())
+		// d.logContext.logTrace("Decompressed %d bytes; %d remaining\n", n, dSrcLen)
 		if _, err = d.outputBuf.Write(d.buffer[:n]); err != nil {
+			d.logContext.log("Error writing decompressed frame to outputBuf: %v", err)
 			return nil, err
 		}
 	}

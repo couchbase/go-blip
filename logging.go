@@ -19,6 +19,7 @@ const (
 	LogGeneral LogEventType = iota // Normal log
 	LogMessage                     // BLIP Message
 	LogFrame                       // BLIP Frame
+	LogTrace                       // Trace logging
 )
 
 // Log callback function
