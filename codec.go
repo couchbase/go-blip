@@ -156,17 +156,28 @@ func (d *decompressor) decompress(input []byte, checksum uint32) ([]byte, error)
 
 	d.outputBuf.Reset()
 
-	// Decompress until the checksum matches and there are only a few bytes of input left:
-	for {
-		dSrcLen := d.src.Len()
-		if dSrcLen <= deflateTrailerLength+2 {
-			d.logContext.logTrace("d.src.Len() <= deflateTrailerLength+2 (%d <= %d)\n", dSrcLen, deflateTrailerLength+2)
-			break
+	forCond := func() (dSrcLen int, dGetChecksum uint32, ok bool) {
+		dSrcLen = d.src.Len()
+		dGetChecksum = d.getChecksum()
+
+		p1 := dSrcLen > deflateTrailerLength+2
+		if p1 {
+			d.logContext.logTrace("d.src.Len() > deflateTrailerLength+2 (%d > %d)\n", dSrcLen, deflateTrailerLength+2)
 		}
 
-		dGetChecksum := d.getChecksum()
-		if dGetChecksum == checksum {
-			d.logContext.logTrace("d.getChecksum() == checksum (%x)\n", checksum)
+		p2 := dGetChecksum != checksum
+		if p2 {
+			d.logContext.logTrace("d.getChecksum() != checksum (%x != %x)\n", dGetChecksum, checksum)
+		}
+
+		return dSrcLen, dGetChecksum, p1 || p2
+	}
+
+	// Decompress until the checksum matches and there are only a few bytes of input left:
+	for {
+		dSrcLen, dGetChecksum, ok := forCond()
+		if !ok {
+			d.logContext.logTrace("breaking from for loop (dSrcLen=%d dGetChecksum=%x)\n", dSrcLen, dGetChecksum)
 			break
 		}
 
