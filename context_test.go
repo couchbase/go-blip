@@ -417,12 +417,13 @@ func TestUnsupportedSubProtocol(t *testing.T) {
 			}
 			port := listener.Addr().(*net.TCPAddr).Port
 			destUrl := fmt.Sprintf("ws://localhost:%d/someBlip", port)
-			_, err = client.Dial(destUrl)
 
+			s, err := client.Dial(destUrl)
 			if testCase.ExpectError {
 				assert.True(t, err != nil)
 			} else {
 				assert.Equals(t, err, nil)
+				s.Close()
 			}
 
 			if testCase.ActiveServerProtocol != "" {
