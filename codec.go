@@ -187,6 +187,10 @@ func (d *decompressor) decompress(input []byte, checksum uint32) ([]byte, error)
 		}
 
 		if err != nil {
+			if err == io.ErrUnexpectedEOF && dGetChecksum == checksum {
+				d.logContext.logTrace("Got unexpected EOF with matching checksum: read=%d, inputLen=%d, remaining=%d, dSrcLen=%d, output=%d, checksum=%x, expectedChecksum=%x\n", n, len(input), d.src.Len(), dSrcLen, d.outputBuf.Len(), dGetChecksum, checksum)
+				break
+			}
 			d.logContext.log("ERROR decompressing frame: read=%d, inputLen=%d, remaining=%d, dSrcLen=%d, output=%d, checksum=%x, expectedChecksum=%x error=%v\n",
 				n, len(input), d.src.Len(), dSrcLen, d.outputBuf.Len(), dGetChecksum, checksum, err)
 			return nil, err
