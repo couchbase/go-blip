@@ -23,7 +23,7 @@ jobs:
       - name: Setup Go Faster
         uses: WillAbides/setup-go-faster@v1.7.0
         with:
-          go-version: *
+          go-version: ^1.17.5 # >=1.17.5, <2.0.0
       - uses: actions/checkout@v2
       - name: Run Tests
         run: go test -race -timeout=30m -count=1 -json -v "github.com/couchbase/go-blip" | tee test.json | jq -s -jr 'sort_by(.Package,.Time) | .[].Output | select (. != null )'
