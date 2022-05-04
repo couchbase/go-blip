@@ -19,7 +19,7 @@ import (
 	"testing"
 	"time"
 
-	assert "github.com/couchbaselabs/go.assert"
+	"github.com/stretchr/testify/assert"
 	"nhooyr.io/websocket"
 )
 
@@ -299,7 +299,7 @@ func TestClientAbruptlyCloseConnectionBehavior(t *testing.T) {
 
 	// Assertions about echo response (these might need to be altered, maybe what's expected in this scenario is actually an error)
 	assert.True(t, err == nil)
-	assert.Equals(t, string(responseBody), "hello")
+	assert.Equal(t, "hello", string(responseBody))
 
 	// Wait until the amplify request was received by client (from server), and that the server read the response
 	err = WaitWithTimeout(&echoAmplifyRoundTripComplete, time.Second*60)
@@ -335,7 +335,7 @@ func TestIncludesProtocol(t *testing.T) {
 
 	for _, headerWithExpectedResponse := range headersWithExpectedResponses {
 		_, matched := includesProtocol(headerWithExpectedResponse.Header, []string{BlipTestAppProtocolId})
-		assert.Equals(t, matched, headerWithExpectedResponse.ExpectedResponse)
+		assert.Equal(t, headerWithExpectedResponse.ExpectedResponse, matched)
 	}
 
 }
@@ -422,13 +422,13 @@ func TestUnsupportedSubProtocol(t *testing.T) {
 			if testCase.ExpectError {
 				assert.True(t, err != nil)
 			} else {
-				assert.Equals(t, err, nil)
+				assert.Equal(t, nil, err)
 				s.Close()
 			}
 
 			if testCase.ActiveServerProtocol != "" {
-				assert.Equals(t, serverCtx.ActiveSubprotocol(), testCase.ActiveServerProtocol)
-				assert.Equals(t, client.ActiveSubprotocol(), serverCtx.ActiveSubprotocol())
+				assert.Equal(t, testCase.ActiveServerProtocol, serverCtx.ActiveSubprotocol())
+				assert.Equal(t, serverCtx.ActiveSubprotocol(), client.ActiveSubprotocol())
 			}
 		})
 	}

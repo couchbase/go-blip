@@ -16,7 +16,7 @@ import (
 	"math/rand"
 	"testing"
 
-	assert "github.com/couchbaselabs/go.assert"
+	"github.com/stretchr/testify/assert"
 )
 
 var randomData []byte
@@ -96,7 +96,7 @@ func testCompressData(t *testing.T, dataToCompress []byte) (compressedData []byt
 	if err != nil {
 		t.Errorf("Error compressing <%x> of size %d.  Error: %v", dataToCompress, len(dataToCompress), err)
 	}
-	assert.Equals(t, n, len(dataToCompress))
+	assert.Equal(t, len(dataToCompress), n)
 	compressedData = compressedDest.Bytes()
 	checksum = compressor.getChecksum()
 	returnCompressor(compressor)
@@ -120,7 +120,7 @@ func testCompressDecompress(t *testing.T, dataToCompress []byte) {
 	}
 
 	// Make sure that it decompresses to the same data
-	assert.Equals(t, bytes.Compare(decompressedBytes, dataToCompress), 0)
+	assert.Equal(t, 0, bytes.Compare(decompressedBytes, dataToCompress))
 }
 
 func compressibleDataOfLength(lengthToCompress int) []byte {

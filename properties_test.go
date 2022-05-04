@@ -14,7 +14,7 @@ import (
 	"bytes"
 	"testing"
 
-	assert "github.com/couchbaselabs/go.assert"
+	"github.com/stretchr/testify/assert"
 )
 
 func init() {
@@ -25,30 +25,30 @@ func TestReadWriteProperties(t *testing.T) {
 	p := Properties{"Content-Type": "application/octet-stream", "Foo": "Bar"}
 	var writer bytes.Buffer
 	err := p.WriteTo(&writer)
-	assert.Equals(t, err, nil)
+	assert.Equal(t, nil, err)
 	serialized := writer.Bytes()
-	assert.Equals(t, string(serialized), "\x2EContent-Type\x00application/octet-stream\x00Foo\x00Bar\x00")
+	assert.Equal(t, "\x2EContent-Type\x00application/octet-stream\x00Foo\x00Bar\x00", string(serialized))
 
 	var p2 Properties
 	reader := bytes.NewReader(serialized)
 	err = p2.ReadFrom(reader)
-	assert.Equals(t, err, nil)
-	assert.DeepEquals(t, p2, p)
+	assert.Equal(t, nil, err)
+	assert.Equal(t, p, p2)
 }
 
 func TestReadWriteEmptyProperties(t *testing.T) {
 	var p Properties
 	var writer bytes.Buffer
 	err := p.WriteTo(&writer)
-	assert.Equals(t, err, nil)
+	assert.Equal(t, nil, err)
 	serialized := writer.Bytes()
-	assert.Equals(t, string(serialized), "\x00")
+	assert.Equal(t, "\x00", string(serialized))
 
 	var p2 Properties
 	reader := bytes.NewReader(serialized)
 	err = p2.ReadFrom(reader)
-	assert.Equals(t, err, nil)
-	assert.DeepEquals(t, p2, p)
+	assert.Equal(t, nil, err)
+	assert.Equal(t, p, p2)
 }
 
 func TestReadBadProperties(t *testing.T) {
