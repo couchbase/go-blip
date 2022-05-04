@@ -21,7 +21,7 @@ import (
 	"testing"
 	"time"
 
-	assert "github.com/couchbaselabs/go.assert"
+	"github.com/stretchr/testify/assert"
 )
 
 // Round trip a high number of messages over a loopback websocket
@@ -118,7 +118,7 @@ func TestEchoRoundTrip(t *testing.T) {
 						}
 						responseBody, err := response.Body()
 						assert.True(t, err == nil)
-						assert.Equals(t, string(responseBody), "hello")
+						assert.Equal(t, "hello", string(responseBody))
 					}(echoRequest)
 				}
 			}()
@@ -164,8 +164,8 @@ func TestSenderPing(t *testing.T) {
 	destUrl := fmt.Sprintf("ws://localhost:%d/blip", port)
 
 	// client hasn't connected yet, stats are uninitialized
-	assert.Equals(t, expvarToInt64(goblipExpvar.Get("sender_ping_count")), int64(0))
-	assert.Equals(t, expvarToInt64(goblipExpvar.Get("goroutines_sender_ping")), int64(0))
+	assert.Equal(t, int64(0), expvarToInt64(goblipExpvar.Get("sender_ping_count")))
+	assert.Equal(t, int64(0), expvarToInt64(goblipExpvar.Get("goroutines_sender_ping")))
 
 	sender, err := clientCtx.Dial(destUrl)
 	if err != nil {
@@ -175,13 +175,13 @@ func TestSenderPing(t *testing.T) {
 	time.Sleep(time.Millisecond * 50)
 
 	// an active ping goroutine with at least 1 ping sent for the above sleep
-	assert.Equals(t, expvarToInt64(goblipExpvar.Get("goroutines_sender_ping")), int64(1))
+	assert.Equal(t, int64(1), expvarToInt64(goblipExpvar.Get("goroutines_sender_ping")))
 	assert.True(t, expvarToInt64(goblipExpvar.Get("sender_ping_count")) > 0)
 
 	sender.Close()
 
 	// ensure the sender's ping goroutine has exited
-	assert.Equals(t, expvarToInt64(goblipExpvar.Get("goroutines_sender_ping")), int64(0))
+	assert.Equal(t, int64(0), expvarToInt64(goblipExpvar.Get("goroutines_sender_ping")))
 }
 
 func expvarToInt64(v expvar.Var) int64 {

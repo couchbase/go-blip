@@ -17,7 +17,7 @@ import (
 	"sync"
 	"testing"
 
-	assert "github.com/couchbaselabs/go.assert"
+	assert "github.com/stretchr/testify/assert"
 )
 
 func TestMessagePushPop(t *testing.T) {
