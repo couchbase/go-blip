@@ -122,7 +122,7 @@ func (context *Context) DialConfig(opts *DialOptions) (*Sender, error) {
 		selectedSubProtocol string
 	)
 
-	wsDialOpts := websocket.DialOptions{}
+	wsDialOpts := websocket.DialOptions{CompressionMode: websocket.CompressionDisabled}
 
 	if opts != nil {
 		wsDialOpts.HTTPClient = opts.HTTPClient
@@ -206,6 +206,7 @@ func (bwss *blipWebsocketServer) handshake(w http.ResponseWriter, r *http.Reques
 		Subprotocols: []string{protocol},
 		// InsecureSkipVerify controls whether Origins are checked or not.
 		InsecureSkipVerify: true,
+		CompressionMode:    websocket.CompressionDisabled,
 	})
 	if err != nil {
 		bwss.blipCtx.FatalErrorHandler(err)
