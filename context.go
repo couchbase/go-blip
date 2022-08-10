@@ -44,13 +44,14 @@ type Context struct {
 	// The currently used WebSocket subprotocol by the client, set on a successful handshake.
 	activeSubProtocol string
 
-	HandlerForProfile map[string]Handler // Handler function for a request Profile
-	DefaultHandler    Handler            // Handler for all otherwise unhandled requests
-	FatalErrorHandler func(error)        // Called when connection has a fatal error
-	MaxSendQueueCount int                // Max # of messages being sent at once (if >0)
-	Logger            LogFn              // Logging callback; defaults to log.Printf
-	LogMessages       bool               // If true, will log about messages
-	LogFrames         bool               // If true, will log about frames (very verbose)
+	HandlerForProfile   map[string]Handler                                // Handler function for a request Profile
+	DefaultHandler      Handler                                           // Handler for all otherwise unhandled requests
+	FatalErrorHandler   func(error)                                       // Called when connection has a fatal error
+	HandlerPanicHandler func(request, response *Message, err interface{}) // Called when a profile handler panics
+	MaxSendQueueCount   int                                               // Max # of messages being sent at once (if >0)
+	Logger              LogFn                                             // Logging callback; defaults to log.Printf
+	LogMessages         bool                                              // If true, will log about messages
+	LogFrames           bool                                              // If true, will log about frames (very verbose)
 
 	OnExitCallback func() // OnExitCallback callback invoked when the underlying connection closes and the receive loop exits.
 
@@ -237,10 +238,14 @@ func (context *Context) dispatchRequest(request *Message, sender *Sender) {
 		// On return/panic, send the response:
 		response := request.Response()
 		if panicked := recover(); panicked != nil {
-			stack := debug.Stack()
-			context.log("PANIC handling BLIP request %v: %v:\n%s", request, panicked, stack)
-			if response != nil {
-				response.SetError(BLIPErrorDomain, 500, fmt.Sprintf("Panic: %v", panicked))
+			if context.HandlerPanicHandler != nil {
+				context.HandlerPanicHandler(request, response, panicked)
+			} else {
+				stack := debug.Stack()
+				context.log("PANIC handling BLIP request %v: %v:\n%s", request, panicked, stack)
+				if response != nil {
+					response.SetError(BLIPErrorDomain, 500, fmt.Sprintf("Panic: %v", panicked))
+				}
 			}
 		}
 		if response != nil {
