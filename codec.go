@@ -12,12 +12,16 @@ package blip
 
 import (
 	"bytes"
-	"compress/flate"
 	"fmt"
 	"hash"
 	"hash/crc32"
 	"io"
 	"sync"
+
+	// CBG-1712: std compress/flate has some sort of issue
+	// handling the compressed stream of BLIP data that this
+	// library does not
+	"github.com/klauspost/compress/flate"
 )
 
 // The standard trailer appended by 'deflate' when flushing its output. BLIP (like many protocols)
