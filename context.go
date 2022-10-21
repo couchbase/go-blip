@@ -159,7 +159,12 @@ func (context *Context) DialConfig(opts *DialOptions) (*Sender, error) {
 
 		err := sender.receiver.receiveLoop()
 		if err != nil {
-			context.log("BLIP/Websocket receiveLoop exited: %v", err)
+			if isCloseError(err) {
+				// lower log level for close
+				context.logFrame("BLIP/Websocket receiveLoop exited: %v", err)
+			} else {
+				context.log("BLIP/Websocket receiveLoop exited with error: %v", err)
+			}
 			if context.OnExitCallback != nil {
 				context.OnExitCallback()
 			}
@@ -222,8 +227,8 @@ func (bwss *blipWebsocketServer) handle(ws *websocket.Conn) {
 	sender := bwss.blipCtx.start(ws)
 	err := sender.receiver.receiveLoop()
 	sender.Stop()
-	if err != nil && err != io.EOF {
-		bwss.blipCtx.log("BLIP/Websocket Handler exited: %v", err)
+	if err != nil && !isCloseError(err) {
+		bwss.blipCtx.log("BLIP/Websocket Handler exited with error: %v", err)
 		if bwss.blipCtx.FatalErrorHandler != nil {
 			bwss.blipCtx.FatalErrorHandler(err)
 		}
@@ -304,4 +309,22 @@ func includesProtocol(header string, protocols []string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// isCloseError returns true if the given error is expected on a websocket close (i.e. io.EOF, WS 1000, 1001, 1005, ...)
+func isCloseError(err error) bool {
+	if err == io.EOF {
+		// net package library returned EOF for close (it had no support for close handshakes)
+		return true
+	}
+	// The following status codes are mostly expected for clients closing a connection,
+	// either cleanly (1000, 1001) or abruptly (1005)... Not much cause for concern.
+	switch websocket.CloseStatus(err) {
+	case websocket.StatusNormalClosure,
+		websocket.StatusGoingAway,
+		websocket.StatusNoStatusRcvd:
+		return true
+	}
+
+	return false
 }
