@@ -15,24 +15,17 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
-	"io"
-	"log"
 	"runtime/debug"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"nhooyr.io/websocket"
 )
 
 const checksumLength = 4
 
-type msgStreamer struct {
-	message      *Message
-	writer       io.WriteCloser
-	bytesWritten uint64
-}
-
-type msgStreamerMap map[MessageNumber]*msgStreamer
+type msgStreamerMap map[MessageNumber]*msgReceiver
 
 // The receiving side of a BLIP connection.
 // Handles receiving WebSocket messages as frames and assembling them into BLIP messages.
@@ -51,18 +44,27 @@ type receiver struct {
 	pendingRequests          msgStreamerMap // Unfinished REQ messages being assembled
 	pendingResponses         msgStreamerMap // Unfinished RES messages being assembled
 	maxPendingResponseNumber MessageNumber  // Largest RES # I've seen
+
+	dispatchMutex          sync.Mutex // For thread-safe access to the fields below
+	dispatchCond           sync.Cond  // Used when receiver stops reading
+	maxDispatchedBytes     int        // above this value, receiver stops reading the WebSocket
+	dispatchedBytes        int        // Size of dispatched but unhandled incoming requests
+	dispatchedMessageCount int        // Number of dispatched but unhandled incoming requests
 }
 
 func newReceiver(context *Context, conn *websocket.Conn) *receiver {
-	return &receiver{
-		conn:             conn,
-		context:          context,
-		channel:          make(chan []byte, 10),
-		parseError:       make(chan error, 1),
-		frameDecoder:     getDecompressor(context),
-		pendingRequests:  msgStreamerMap{},
-		pendingResponses: msgStreamerMap{},
+	rcvr := &receiver{
+		conn:               conn,
+		context:            context,
+		channel:            make(chan []byte, 10),
+		parseError:         make(chan error, 1),
+		frameDecoder:       getDecompressor(context),
+		pendingRequests:    msgStreamerMap{},
+		pendingResponses:   msgStreamerMap{},
+		maxDispatchedBytes: context.MaxDispatchedBytes,
 	}
+	rcvr.dispatchCond = sync.Cond{L: &rcvr.dispatchMutex}
+	return rcvr
 }
 
 func (r *receiver) receiveLoop() error {
@@ -74,7 +76,7 @@ func (r *receiver) receiveLoop() error {
 
 	for {
 		// Receive the next raw WebSocket frame:
-		_, frame, err := r.conn.Read(context.TODO())
+		msgType, frame, err := r.conn.Read(context.TODO())
 		if err != nil {
 			if isCloseError(err) {
 				// lower log level for close
@@ -88,7 +90,12 @@ func (r *receiver) receiveLoop() error {
 			return err
 		}
 
-		r.channel <- frame
+		switch msgType {
+		case websocket.MessageBinary:
+			r.channel <- frame
+		default:
+			r.context.log("Warning: received WebSocket message of type %v", msgType)
+		}
 	}
 }
 
@@ -96,7 +103,7 @@ func (r *receiver) parseLoop() {
 	defer func() { // Panic handler:
 		atomic.AddInt32(&r.activeGoroutines, -1)
 		if p := recover(); p != nil {
-			log.Printf("PANIC in BLIP parseLoop: %v\n%s", p, debug.Stack())
+			r.context.log("PANIC in BLIP parseLoop: %v\n%s", p, debug.Stack())
 			err, _ := p.(error)
 			if err == nil {
 				err = fmt.Errorf("Panic: %v", p)
@@ -131,7 +138,6 @@ func (r *receiver) fatalError(err error) {
 }
 
 func (r *receiver) stop() {
-
 	r.closePendingResponses()
 
 	r.conn.Close(websocket.StatusNormalClosure, "")
@@ -140,20 +146,11 @@ func (r *receiver) stop() {
 }
 
 func (r *receiver) closePendingResponses() {
-
 	r.pendingMutex.Lock()
 	defer r.pendingMutex.Unlock()
 
-	// There can be goroutines spawned by message.asyncRead() that are blocked waiting to
-	// read off their end of an io.Pipe, and if the peer abruptly closes a connection which causes
-	// the sender to stop(), the other side of that io.Pipe must be closed to avoid the goroutine's
-	// call to unblock on the read() call.  This loops through any io.Pipewriters in pendingResponses and
-	// close them, unblocking the readers and letting the message.asyncRead() goroutines proceed.
 	for _, msgStreamer := range r.pendingResponses {
-		err := msgStreamer.writer.Close()
-		if err != nil {
-			r.context.logMessage("Warning: error closing msgStreamer writer in pending responses while stopping receiver: %v", err)
-		}
+		msgStreamer.cancelIncoming()
 	}
 }
 
@@ -216,14 +213,14 @@ func (r *receiver) handleIncomingFrame(frame []byte) error {
 			return err
 		}
 
-		return r.processFrame(requestNumber, flags, body, frameSize)
+		return r.processIncomingFrame(requestNumber, flags, body, frameSize)
 	}
 }
 
-func (r *receiver) processFrame(requestNumber MessageNumber, flags frameFlags, frame []byte, frameSize int) error {
+func (r *receiver) processIncomingFrame(requestNumber MessageNumber, flags frameFlags, frame []byte, frameSize int) error {
 	// Look up or create the writer stream for this message:
 	complete := (flags & kMoreComing) == 0
-	var msgStream *msgStreamer
+	var msgStream *msgReceiver
 	var err error
 	switch flags.messageType() {
 	case RequestType:
@@ -235,30 +232,40 @@ func (r *receiver) processFrame(requestNumber MessageNumber, flags frameFlags, f
 	default:
 		r.context.log("Warning: Ignoring incoming message type, with flags 0x%x", flags)
 	}
+	if msgStream == nil {
+		return err
+	}
 
 	// Write the decoded frame body to the stream:
-	if msgStream != nil {
-		if _, err := writeFull(frame, msgStream.writer); err != nil {
-			return err
-		} else if complete {
-			if err = msgStream.writer.Close(); err != nil {
-				r.context.log("Warning: message writer closed with error %v", err)
-			}
-		} else {
-			//FIX: This isn't the right place to do this, because this goroutine doesn't block even
-			// if the client can't read the message fast enough. The right place to send the ACK is
-			// in the goroutine that's running msgStream.writer. (Somehow...)
-			oldWritten := msgStream.bytesWritten
-			msgStream.bytesWritten += uint64(frameSize)
-			if oldWritten > 0 && (oldWritten/kAckInterval) < (msgStream.bytesWritten/kAckInterval) {
-				r.sender.sendAck(requestNumber, flags.messageType(), msgStream.bytesWritten)
-			}
+	state, err := msgStream.addIncomingBytes(frame, complete)
+	if err != nil {
+		return err
+	}
+
+	if !complete {
+		// Not complete yet; send an ACK message every `kAckInterval` bytes:
+		//FIX: This isn't the right place to do this, because this goroutine doesn't block even
+		// if the client can't read the message fast enough.
+		msgStream.maybeSendAck(frameSize)
+	}
+
+	// Dispatch at first or last frame:
+	if request := msgStream.inResponseTo; request != nil {
+		if state.atStart {
+			// Dispatch response to its request message as soon as properties are available:
+			r.context.logMessage("Received response %s", msgStream.Message)
+			request.responseAvailable(msgStream.Message) // Response to outgoing request
+		}
+	} else {
+		if /*state.atStart ||*/ state.atEnd {
+			// Dispatch request to the dispatcher:
+			r.dispatch(msgStream.Message)
 		}
 	}
 	return err
 }
 
-func (r *receiver) getPendingRequest(requestNumber MessageNumber, flags frameFlags, complete bool) (msgStream *msgStreamer, err error) {
+func (r *receiver) getPendingRequest(requestNumber MessageNumber, flags frameFlags, complete bool) (msgStream *msgReceiver, err error) {
 	r.pendingMutex.Lock()
 	defer r.pendingMutex.Unlock()
 	msgStream = r.pendingRequests[requestNumber]
@@ -268,15 +275,7 @@ func (r *receiver) getPendingRequest(requestNumber MessageNumber, flags frameFla
 		}
 	} else if requestNumber == r.numRequestsReceived+1 {
 		r.numRequestsReceived++
-		request := newIncomingMessage(r.sender, requestNumber, flags, nil)
-		atomic.AddInt32(&r.activeGoroutines, 1)
-		msgStream = &msgStreamer{
-			message: request,
-			writer: request.asyncRead(func(err error) {
-				r.context.dispatchRequest(request, r.sender)
-				atomic.AddInt32(&r.activeGoroutines, -1)
-			}),
-		}
+		msgStream = newIncomingMessage(r.sender, requestNumber, flags)
 		if !complete {
 			r.pendingRequests[requestNumber] = msgStream
 		}
@@ -286,13 +285,13 @@ func (r *receiver) getPendingRequest(requestNumber MessageNumber, flags frameFla
 	return msgStream, nil
 }
 
-func (r *receiver) getPendingResponse(requestNumber MessageNumber, flags frameFlags, complete bool) (msgStream *msgStreamer, err error) {
+func (r *receiver) getPendingResponse(requestNumber MessageNumber, flags frameFlags, complete bool) (msgStream *msgReceiver, err error) {
 	r.pendingMutex.Lock()
 	defer r.pendingMutex.Unlock()
 	msgStream = r.pendingResponses[requestNumber]
 	if msgStream != nil {
 		if msgStream.bytesWritten == 0 {
-			msgStream.message.flags = flags // set flags based on 1st frame of response
+			msgStream.flags = flags // set flags based on 1st frame of response
 		}
 		if complete {
 			delete(r.pendingResponses, requestNumber)
@@ -307,15 +306,14 @@ func (r *receiver) getPendingResponse(requestNumber MessageNumber, flags frameFl
 	return
 }
 
-// pendingResponses is accessed from both the receiveLoop goroutine and the sender's goroutine,
-// so it needs synchronization.
-func (r *receiver) awaitResponse(request *Message, writer io.WriteCloser) {
+func (r *receiver) awaitResponse(response *Message) {
+	// pendingResponses is accessed from both the receiveLoop goroutine and the sender's goroutine,
+	// so it needs synchronization.
 	r.pendingMutex.Lock()
 	defer r.pendingMutex.Unlock()
-	number := request.number
-	r.pendingResponses[number] = &msgStreamer{
-		message: request,
-		writer:  writer,
+	number := response.number
+	r.pendingResponses[number] = &msgReceiver{
+		Message: response,
 	}
 	if number > r.maxPendingResponseNumber {
 		r.maxPendingResponseNumber = number
@@ -328,16 +326,72 @@ func (r *receiver) backlog() (pendingRequest, pendingResponses int) {
 	return len(r.pendingRequests), len(r.pendingResponses)
 }
 
-// Why isn't this in the io package already, when ReadFull is?
-func writeFull(buf []byte, writer io.Writer) (nWritten int, err error) {
-	for len(buf) > 0 {
-		var n int
-		n, err = writer.Write(buf)
-		if err != nil {
-			break
+//////// REQUEST DISPATCHING
+
+func (r *receiver) dispatch(request *Message) {
+	sender := r.sender
+	requestSize := request.bodySize()
+	onComplete := func() {
+		response := request.Response()
+		if panicked := recover(); panicked != nil {
+			if handler := sender.context.HandlerPanicHandler; handler != nil {
+				handler(request, response, panicked)
+			} else {
+				stack := debug.Stack()
+				sender.context.log("PANIC handling BLIP request %v: %v:\n%s", request, panicked, stack)
+				if response != nil {
+					// (It is generally considered bad security to reveal internal state like error
+					// messages or stack dumps in a network response.)
+					response.SetError(BLIPErrorDomain, HandlerFailedCode, "Internal Error")
+				}
+			}
 		}
-		nWritten += n
-		buf = buf[n:]
+
+		r.subDispatchedBytes(requestSize)
+
+		if response != nil {
+			sender.send(response)
+		}
 	}
-	return
+
+	r.addDispatchedBytes(requestSize)
+	r.context.RequestHandler(request, onComplete)
+	r.waitOnDispatchedBytes()
+}
+
+func (r *receiver) addDispatchedBytes(n int) {
+	if r.maxDispatchedBytes > 0 {
+		r.dispatchMutex.Lock()
+		r.dispatchedBytes += n
+		r.dispatchedMessageCount++
+		r.dispatchMutex.Unlock()
+	}
+}
+
+func (r *receiver) subDispatchedBytes(n int) {
+	if r.maxDispatchedBytes > 0 {
+		r.dispatchMutex.Lock()
+		prevBytes := r.dispatchedBytes
+		r.dispatchedBytes = prevBytes - n
+		r.dispatchedMessageCount--
+		if prevBytes > r.maxDispatchedBytes && r.dispatchedBytes <= r.maxDispatchedBytes {
+			r.dispatchCond.Signal()
+		}
+		r.dispatchMutex.Unlock()
+	}
+}
+
+func (r *receiver) waitOnDispatchedBytes() {
+	if r.maxDispatchedBytes > 0 {
+		r.dispatchMutex.Lock()
+		if r.dispatchedBytes > r.maxDispatchedBytes {
+			start := time.Now()
+			r.context.log("WebSocket receiver paused (%d requests being handled, %d bytes)", r.dispatchedMessageCount, r.dispatchedBytes)
+			for r.dispatchedBytes > r.maxDispatchedBytes {
+				r.dispatchCond.Wait()
+			}
+			r.context.log("...WebSocket receiver resuming after %v (now %d requests being handled, %d bytes)", time.Since(start), r.dispatchedMessageCount, r.dispatchedBytes)
+		}
+		r.dispatchMutex.Unlock()
+	}
 }

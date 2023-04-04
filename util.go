@@ -11,6 +11,7 @@ licenses/APL2.txt.
 package blip
 
 import (
+	"fmt"
 	"sync/atomic"
 	"time"
 )
@@ -45,4 +46,19 @@ func errorFromChannel(c chan error) error {
 	default:
 	}
 	return nil
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	} else {
+		return b
+	}
+}
+
+// Simple assertion that panics if the condition isn't met.
+func precondition(condition bool, panicMessage string, args ...interface{}) {
+	if !condition {
+		panic(fmt.Sprintf("Precondition failed! "+panicMessage, args...))
+	}
 }
