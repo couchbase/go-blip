@@ -117,11 +117,11 @@ func newDecompressor(logContext LogContext) *decompressor {
 	}
 }
 
-func (d *decompressor) reset(logContext LogContext) {
+func (d *decompressor) reset(logContext LogContext) error {
 	d.logContext = logContext
 	d.checksum = crc32.NewIEEE()
 	d.src.Reset()
-	d.z.(flate.Resetter).Reset(d.src, nil)
+	return d.z.(flate.Resetter).Reset(d.src, nil)
 }
 
 func (d *decompressor) passthrough(input []byte, checksum *uint32) ([]byte, error) {
@@ -211,11 +211,11 @@ func returnCompressor(c *compressor) {
 // Gets a decompressor from the pool, or creates a new one if the pool is empty:
 func getDecompressor(logContext LogContext) *decompressor {
 	if d, ok := decompressorCache.Get().(*decompressor); ok {
-		d.reset(logContext)
-		return d
-	} else {
-		return newDecompressor(logContext)
+		if d.reset(logContext) == nil {
+			return d
+		}
 	}
+	return newDecompressor(logContext)
 }
 
 // Closes a decompressor and returns it to the pool:

@@ -172,7 +172,10 @@ func (sender *Sender) start() {
 				frameBuffer.Write(body)
 			} else {
 				frameEncoder.enableCompression(msg.Compressed())
-				frameEncoder.write(body)
+				_, err := frameEncoder.write(body)
+				if err != nil {
+					sender.context.logFrame("Sender error writing to frameencoder: %s", err)
+				}
 				var checksum [4]byte
 				binary.BigEndian.PutUint32(checksum[:], frameEncoder.getChecksum())
 				frameBuffer.Write(checksum[:])
