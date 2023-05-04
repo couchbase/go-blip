@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func init() {
@@ -98,7 +99,7 @@ func TestMessageDecoding(t *testing.T) {
 	original := makeTestRequest()
 	reader, writer := io.Pipe()
 	go func() {
-		original.WriteTo(writer)
+		require.NoError(t, original.WriteTo(writer))
 		writer.Close()
 	}()
 

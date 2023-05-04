@@ -1,35 +1,86 @@
 # Copyright 2022-Present Couchbase, Inc.
 #
-# Use of this software is governed by the Business Source License included in
-# the file licenses/BSL-Couchbase.txt.  As of the Change Date specified in that
-# file, in accordance with the Business Source License, use of this software
-# will be governed by the Apache License, Version 2.0, included in the file
-# licenses/APL2.txt.
+# Use of this software is governed by the Business Source License included
+# in the file licenses/BSL-Couchbase.txt.  As of the Change Date specified
+# in that file, in accordance with the Business Source License, use of this
+# software will be governed by the Apache License, Version 2.0, included in
+# the file licenses/APL2.txt.
 
 name: ci
 
 on:
   push:
-    branches: 
+    branches:
       - 'master'
+      - 'release/*'
+      - 'CBG*'
+      - 'ci-*'
+      - 'feature*'
   pull_request:
     branches:
       - 'master'
+      - 'release/*'
 
 jobs:
-  test-race:
+  addlicense:
+    name: addlicense
     runs-on: ubuntu-latest
     steps:
-      - name: Setup Go Faster
-        uses: WillAbides/setup-go-faster@v1.7.0
+      - uses: actions/setup-go@v3
         with:
-          go-version: ^1.17.5 # >=1.17.5, <2.0.0
-      - uses: actions/checkout@v2
+          go-version: 1.20.3
+      - run: go install github.com/google/addlicense@latest
+      - uses: actions/checkout@v3
+      - run: addlicense -check -f licenses/addlicense.tmpl .
+
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest, ubuntu-latest]
+    steps:
+      - name: Setup Go Faster
+        uses: WillAbides/setup-go-faster@v1.8.0
+        with:
+          go-version: 1.20.3
+      - uses: actions/checkout@v3
+      - name: Build
+        run: go build -v "./..."
       - name: Run Tests
-        run: go test -race -timeout=30m -count=1 -json -v "github.com/couchbase/go-blip" | tee test.json | jq -s -jr 'sort_by(.Package,.Time) | .[].Output | select (. != null )'
+        run: go test -timeout=30m -count=1 -json -v "./..." | tee test.json | jq -s -jr 'sort_by(.Package,.Time) | .[].Output | select (. != null )'
         shell: bash
       - name: Annotate Failures
         if: always()
-        uses: guyarb/golang-test-annotations@v0.5.1
+        uses: guyarb/golang-test-annotations@v0.6.0
+        with:
+          test-results: test.json
+
+  golangci:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: WillAbides/setup-go-faster@v1.8.0
+        with:
+          go-version: 1.20.3
+      - uses: actions/checkout@v3
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v3
+        with:
+          version: v1.52.0
+
+  test-race:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: WillAbides/setup-go-faster@v1.8.0
+        with:
+          go-version: 1.20.3
+      - uses: actions/checkout@v3
+      - name: Run Tests
+        run: go test -race -timeout=30m -count=1 -json -v "./..." | tee test.json | jq -s -jr 'sort_by(.Package,.Time) | .[].Output | select (. != null )'
+        shell: bash
+      - name: Annotate Failures
+        if: always()
+        uses: guyarb/golang-test-annotations@v0.6.0
         with:
           test-results: test.json

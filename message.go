@@ -416,9 +416,6 @@ func (m *Message) nextFrameToSend(maxSize int) ([]byte, frameFlags) {
 		flags |= kMoreComing
 	} else {
 		frame = frame[0:size]
-		if err == io.ErrUnexpectedEOF {
-			err = nil
-		}
 	}
 	return frame, flags
 }

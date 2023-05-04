@@ -34,13 +34,12 @@ const BlipTestAppProtocolId = "GoBlipUnitTests"
 //
 // Test:
 //
-// - Start two blip contexts: an echo server and an echo client
-// - The echo server is configured to respond to incoming echo requests and return responses, with the twist
-//       that it abruptly terminates websocket before returning from callback
-// - The echo client tries to read the response after sending the request
-// - Expected: the echo client should receive some sort of error when trying to read the response, since the server abruptly terminated the connection
-// - Actual: the echo client blocks indefinitely trying to read the response
-//
+//   - Start two blip contexts: an echo server and an echo client
+//   - The echo server is configured to respond to incoming echo requests and return responses, with the twist
+//     that it abruptly terminates websocket before returning from callback
+//   - The echo client tries to read the response after sending the request
+//   - Expected: the echo client should receive some sort of error when trying to read the response, since the server abruptly terminated the connection
+//   - Actual: the echo client blocks indefinitely trying to read the response
 func TestServerAbruptlyCloseConnectionBehavior(t *testing.T) {
 
 	blipContextEchoServer, err := NewContext(BlipTestAppProtocolId)
@@ -135,7 +134,6 @@ func TestServerAbruptlyCloseConnectionBehavior(t *testing.T) {
 }
 
 /*
-
 This was added in reaction to https://github.com/couchbase/sync_gateway/issues/3268 to either
 confirm or deny erroneous behavior w.r.t sockets being abruptly closed.  The main question attempted
 to be answered is:
@@ -148,35 +146,34 @@ to issue an outbound request to a client.  Is there a simpler way?
 
 The test does the following steps:
 
-
 ┌─────────────────────────────┐                                  ┌─────────────────────────────┐
 │    blipContextEchoClient    │                                  │    blipContextEchoServer    │
 └──────────────┬──────────────┘                                  └──────────────┬──────────────┘
-               │                                                                │
-               ├──────────────────────────────Dial──────────────────────────────▶
-               │                                                                │
-               │                               Echo                             │
-               ├─────────────────────────────Request────────────────────────────▶
-               │                                                                │
-               │                              Echo                              │
-               ◀────────────────────────────Response────────────────────────────┤
-               │                                                                │
-               │                               Echo                             │
-               ◀─────────────────────────────Amplify ───────────────────────────┤
-               │                             Request                            │
-               │                                                                │
-               │                              Close                             │
-               ├────────────────────────────Connection──────────────────────────▶
-               │                                                                │
-               │                                                                │
-               │                        Echo Response Never                     │
-               ├ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─Happens─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─▶
-               │                          Shouldn't Block                       │
-               │                                                                │
-               │                                                                │
-               │                                                                │
-               ▼                                                                ▼
 
+	│                                                                │
+	├──────────────────────────────Dial──────────────────────────────▶
+	│                                                                │
+	│                               Echo                             │
+	├─────────────────────────────Request────────────────────────────▶
+	│                                                                │
+	│                              Echo                              │
+	◀────────────────────────────Response────────────────────────────┤
+	│                                                                │
+	│                               Echo                             │
+	◀─────────────────────────────Amplify ───────────────────────────┤
+	│                             Request                            │
+	│                                                                │
+	│                              Close                             │
+	├────────────────────────────Connection──────────────────────────▶
+	│                                                                │
+	│                                                                │
+	│                        Echo Response Never                     │
+	├ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─Happens─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─▶
+	│                          Shouldn't Block                       │
+	│                                                                │
+	│                                                                │
+	│                                                                │
+	▼                                                                ▼
 */
 func TestClientAbruptlyCloseConnectionBehavior(t *testing.T) {
 
