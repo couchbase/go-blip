@@ -61,8 +61,8 @@ type Context struct {
 	// An identifier that uniquely defines the context.  NOTE: Random Number Generator not seeded by go-blip.
 	ID string
 
-	lastBytesSent     atomic.Uint64 // Number of bytes sent since last query
-	lastBytesRecieved atomic.Uint64 // Number of bytes received since last query
+	bytesSent     atomic.Uint64 // Number of bytes sent
+	bytesReceived atomic.Uint64 // Number of bytes received
 }
 
 // Defines a logging interface for use within the blip codebase.  Implemented by Context.
@@ -111,9 +111,14 @@ func (context *Context) Dial(url string) (*Sender, error) {
 	})
 }
 
-// GetLastBytesTransferred returns the number of bytes since the last query of this function
-func (context *Context) GetLastBytesTransferred() uint64 {
-	return context.lastBytesRecieved.Swap(0) + context.lastBytesSent.Swap(0)
+// GetBytesSent returns the number of bytes sent since start of the context.
+func (context *Context) GetBytesSent() uint64 {
+	return context.bytesSent.Load()
+}
+
+// GetBytesReceived returns the number of bytes received since start of the context.
+func (context *Context) GetBytesReceived() uint64 {
+	return context.bytesReceived.Load()
 }
 
 // DialOptions is used by DialConfig to oepn a BLIP connection.

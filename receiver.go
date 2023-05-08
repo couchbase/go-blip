@@ -112,7 +112,7 @@ func (r *receiver) parseLoop() {
 	atomic.AddInt32(&r.activeGoroutines, 1)
 
 	for frame := range r.channel {
-		r.context.lastBytesRecieved.Add(uint64(len(frame)))
+		r.context.bytesReceived.Add(uint64(len(frame)))
 		if err := r.handleIncomingFrame(frame); err != nil {
 			r.fatalError(err)
 			break
