@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"runtime/debug"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"nhooyr.io/websocket"
@@ -59,6 +60,9 @@ type Context struct {
 
 	// An identifier that uniquely defines the context.  NOTE: Random Number Generator not seeded by go-blip.
 	ID string
+
+	lastBytesSent     atomic.Uint64 // Number of bytes sent since last query
+	lastBytesRecieved atomic.Uint64 // Number of bytes received since last query
 }
 
 // Defines a logging interface for use within the blip codebase.  Implemented by Context.
@@ -105,6 +109,11 @@ func (context *Context) Dial(url string) (*Sender, error) {
 	return context.DialConfig(&DialOptions{
 		URL: url,
 	})
+}
+
+// GetLastBytesTransferred returns the number of bytes since the last query of this function
+func (context *Context) GetLastBytesTransferred() uint64 {
+	return context.lastBytesRecieved.Swap(0) + context.lastBytesSent.Swap(0)
 }
 
 // DialOptions is used by DialConfig to oepn a BLIP connection.
