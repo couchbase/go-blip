@@ -64,14 +64,14 @@ func WaitWithTimeout(wg *sync.WaitGroup, timeout time.Duration) error {
 	case <-wgFinished:
 		return nil
 	case <-time.After(timeout):
-		return fmt.Errorf("Timed out waiting after %v", timeout)
+		return fmt.Errorf("timed out waiting after %v", timeout)
 	}
 }
 
 // Returns the serialized form (properties + body) of a Message.
 func serializeMessage(t *testing.T, m *Message) []byte {
 	var writer bytes.Buffer
-	err := m.WriteTo(&writer)
+	err := m.WriteEncodedTo(&writer)
 	assert.NoError(t, err)
 	return writer.Bytes()
 }

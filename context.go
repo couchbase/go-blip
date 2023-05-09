@@ -222,9 +222,9 @@ func (bwss *blipWebsocketServer) handshake(w http.ResponseWriter, r *http.Reques
 	protocolHeader := r.Header.Get("Sec-WebSocket-Protocol")
 	protocol, found := includesProtocol(protocolHeader, bwss.blipCtx.SupportedSubProtocols)
 	if !found {
-		stringSeperatedProtocols := strings.Join(bwss.blipCtx.SupportedSubProtocols, ",")
-		bwss.blipCtx.log("Error: Client doesn't support any of WS protocols: %s only %s", stringSeperatedProtocols, protocolHeader)
-		return nil, fmt.Errorf("I only speak %s protocols", stringSeperatedProtocols)
+		stringSeparatedProtocols := strings.Join(bwss.blipCtx.SupportedSubProtocols, ",")
+		bwss.blipCtx.log("Error: Client doesn't support any of WS protocols: %s only %s", stringSeparatedProtocols, protocolHeader)
+		return nil, fmt.Errorf("I only speak %s protocols", stringSeparatedProtocols)
 	}
 
 	ws, err := websocket.Accept(w, r, &websocket.AcceptOptions{

@@ -14,7 +14,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"strconv"
 	"sync"
 )
@@ -153,8 +152,8 @@ func (message *Message) Complete() bool {
 }
 
 // Writes the encoded form of a Message to a stream.
-func (message *Message) WriteTo(writer io.Writer) error {
-	if err := message.Properties.WriteTo(writer); err != nil {
+func (message *Message) WriteEncodedTo(writer io.Writer) error {
+	if err := message.Properties.WriteEncodedTo(writer); err != nil {
 		return err
 	}
 	var err error
@@ -236,7 +235,7 @@ func (m *Message) Body() ([]byte, error) {
 	m.bodyMutex.Lock()
 	defer m.bodyMutex.Unlock()
 	if m.body == nil && !m.Outgoing {
-		body, err := ioutil.ReadAll(m.bodyReader)
+		body, err := io.ReadAll(m.bodyReader)
 		if err != nil {
 			return nil, err
 		}
@@ -568,9 +567,6 @@ func (m *msgReceiver) cancelIncoming() {
 
 func (message *Message) assertMutable() {
 	precondition(message.Outgoing && !message.inProgress, "Message %s is not modifiable", message)
-}
-func (message *Message) assertIncoming() {
-	precondition(!message.Outgoing, "Message %s is not incoming", message)
 }
 func (message *Message) assertOutgoing() {
 	precondition(message.Outgoing, "Message %s is not outgoing", message)

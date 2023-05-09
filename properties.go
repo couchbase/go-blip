@@ -75,7 +75,7 @@ func ReadProperties(body []byte) (properties Properties, bytesRead int, err erro
 }
 
 // Writes Properties to a stream.
-func (properties Properties) WriteTo(writer io.Writer) error {
+func (properties Properties) WriteEncodedTo(writer io.Writer) error {
 	// First convert the property strings into byte arrays, and add up their sizes:
 	var strings propertyList = make(propertyList, 2*len(properties))
 	i := 0
@@ -111,7 +111,7 @@ func (properties Properties) WriteTo(writer io.Writer) error {
 // Writes Properties to a byte array.
 func (properties Properties) Encode() []byte {
 	var out bytes.Buffer
-	_ = properties.WriteTo(&out)
+	_ = properties.WriteEncodedTo(&out)
 	return out.Bytes()
 }
 

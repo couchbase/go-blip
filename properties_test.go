@@ -25,7 +25,7 @@ func init() {
 func TestReadWriteProperties(t *testing.T) {
 	p := Properties{"Content-Type": "application/octet-stream", "Foo": "Bar"}
 	var writer bytes.Buffer
-	err := p.WriteTo(&writer)
+	err := p.WriteEncodedTo(&writer)
 	assert.Equal(t, nil, err)
 	writer.Write([]byte("FOOBAR"))
 	serialized := writer.Bytes()
@@ -47,7 +47,7 @@ func TestReadWriteProperties(t *testing.T) {
 func TestReadWriteEmptyProperties(t *testing.T) {
 	var p Properties
 	var writer bytes.Buffer
-	err := p.WriteTo(&writer)
+	err := p.WriteEncodedTo(&writer)
 	assert.Equal(t, nil, err)
 	serialized := writer.Bytes()
 	assert.Equal(t, "\x00", string(serialized))

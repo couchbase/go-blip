@@ -128,7 +128,7 @@ func (d *decompressor) passthrough(input []byte, checksum *uint32) ([]byte, erro
 	_, _ = d.checksum.Write(input) // Update checksum (no error possible)
 	if checksum != nil {
 		if curChecksum := d.getChecksum(); curChecksum != *checksum {
-			return nil, fmt.Errorf("Invalid checksum %x; should be %x", curChecksum, *checksum)
+			return nil, fmt.Errorf("invalid checksum %x; should be %x", curChecksum, *checksum)
 		}
 	}
 	return input, nil
@@ -168,7 +168,7 @@ func (d *decompressor) decompress(input []byte, checksum uint32) ([]byte, error)
 			return nil, err
 		} else if n == 0 {
 			// Nothing more to read; since checksum didn't match (above), fail:
-			return nil, fmt.Errorf("Invalid checksum %x; should be %x", d.getChecksum(), checksum)
+			return nil, fmt.Errorf("invalid checksum %x; should be %x", d.getChecksum(), checksum)
 		}
 		_, _ = d.checksum.Write(d.buffer[0:n]) // Update checksum (no error possible)
 

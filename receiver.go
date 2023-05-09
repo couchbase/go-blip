@@ -106,7 +106,7 @@ func (r *receiver) parseLoop() {
 			r.context.log("PANIC in BLIP parseLoop: %v\n%s", p, debug.Stack())
 			err, _ := p.(error)
 			if err == nil {
-				err = fmt.Errorf("Panic: %v", p)
+				err = fmt.Errorf("panic: %v", p)
 			}
 			r.fatalError(err)
 		}
@@ -157,7 +157,7 @@ func (r *receiver) closePendingResponses() {
 func (r *receiver) handleIncomingFrame(frame []byte) error {
 	// Parse BLIP header:
 	if len(frame) < 2 {
-		return fmt.Errorf("Illegally short frame")
+		return fmt.Errorf("illegally short frame")
 	}
 	r.frameBuffer.Reset()
 	r.frameBuffer.Write(frame)
@@ -189,14 +189,14 @@ func (r *receiver) handleIncomingFrame(frame []byte) error {
 		bufferedFrame := r.frameBuffer.Bytes()
 		frameSize := len(bufferedFrame)
 		if len(frame) < checksumLength {
-			return fmt.Errorf("Illegally short frame")
+			return fmt.Errorf("illegally short frame")
 		}
-		checksumSlice := bufferedFrame[len(bufferedFrame)-checksumLength : len(bufferedFrame)]
+		checksumSlice := bufferedFrame[len(bufferedFrame)-checksumLength:]
 		checksum := binary.BigEndian.Uint32(checksumSlice)
 		r.frameBuffer.Truncate(r.frameBuffer.Len() - checksumLength)
 
 		if r.context.LogFrames {
-			r.context.logFrame("Received frame: %s (flags=%8b, length=%d)",
+			r.context.logFrame("received frame: %s (flags=%8b, length=%d)",
 				frameString(requestNumber, flags), flags, r.frameBuffer.Len())
 		}
 
@@ -280,7 +280,7 @@ func (r *receiver) getPendingRequest(requestNumber MessageNumber, flags frameFla
 			r.pendingRequests[requestNumber] = msgStream
 		}
 	} else {
-		return nil, fmt.Errorf("Bad incoming request number %d", requestNumber)
+		return nil, fmt.Errorf("bad incoming request number %d", requestNumber)
 	}
 	return msgStream, nil
 }
@@ -301,7 +301,7 @@ func (r *receiver) getPendingResponse(requestNumber MessageNumber, flags frameFl
 		r.context.log("Warning: Unexpected response frame to my msg #%d", requestNumber) // benign
 	} else {
 		// processing a response frame with a message number higher than any requests I've sent
-		err = fmt.Errorf("Bogus message number %d in response.  Expected to be less than max pending response number (%d)", requestNumber, r.maxPendingResponseNumber)
+		err = fmt.Errorf("bogus message number %d in response.  Expected to be less than max pending response number (%d)", requestNumber, r.maxPendingResponseNumber)
 	}
 	return
 }
