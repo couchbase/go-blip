@@ -159,7 +159,7 @@ func (sender *Sender) start() {
 			}
 
 			body, flags := msg.nextFrameToSend(maxSize - 10)
-
+			sender.context.bytesSent.Add(uint64(len(body)))
 			sender.context.logFrame("Sending frame: %v (flags=%8b, size=%5d)", msg, flags, len(body))
 			var header [2 * binary.MaxVarintLen64]byte
 			i := binary.PutUvarint(header[:], uint64(msg.number))
