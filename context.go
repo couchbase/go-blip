@@ -170,7 +170,6 @@ func (context *Context) DialConfig(opts *DialOptions) (*Sender, error) {
 
 		// If the receiveLoop terminates, stop the sender as well
 		defer sender.Stop()
-		// defer context.dispatcher.stop()
 
 		// Update Expvar stats for number of outstanding goroutines
 		incrReceiverGoroutines()
@@ -246,7 +245,6 @@ func (bwss *blipWebsocketServer) handle(ws *websocket.Conn) {
 	sender := bwss.blipCtx.start(ws)
 	err := sender.receiver.receiveLoop()
 	sender.Stop()
-	// bwss.blipCtx.dispatcher.stop()
 	if err != nil && !isCloseError(err) {
 		bwss.blipCtx.log("BLIP/Websocket Handler exited with error: %v", err)
 		if bwss.blipCtx.FatalErrorHandler != nil {

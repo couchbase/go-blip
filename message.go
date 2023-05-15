@@ -49,7 +49,7 @@ type ErrorResponse struct {
 }
 
 // A callback function that takes a message and returns nothing
-type MessageCallback func(*Message)
+type messageCallback func(*Message)
 
 var ErrConnectionClosed = fmt.Errorf("BLIP connection closed")
 

@@ -326,7 +326,7 @@ func (r *receiver) backlog() (pendingRequest, pendingResponses int) {
 	return len(r.pendingRequests), len(r.pendingResponses)
 }
 
-//////// REQUEST DISPATCHING
+//////// REQUEST DISPATCHING & FLOW CONTROL
 
 func (r *receiver) dispatch(request *Message) {
 	sender := r.sender

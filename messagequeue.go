@@ -104,7 +104,7 @@ func (q *messageQueue) push(msg *msgSender) bool {
 
 // Push an item into the queue, also providing a callback function that will be invoked
 // after the number is assigned to the message, but before pushing into the queue.
-func (q *messageQueue) pushWithCallback(msg *msgSender, prepushCallback MessageCallback) bool {
+func (q *messageQueue) pushWithCallback(msg *msgSender, prepushCallback messageCallback) bool {
 	q.cond.L.Lock()
 	defer q.cond.L.Unlock()
 
