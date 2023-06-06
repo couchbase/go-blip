@@ -67,6 +67,8 @@ func newReceiver(context *Context, conn *websocket.Conn) *receiver {
 	return rcvr
 }
 
+// Reads WebSocket messages, not returning until the socket is closed.
+// Spawns parseLoop in a goroutine and pushes the messages to it.
 func (r *receiver) receiveLoop() error {
 	defer atomic.AddInt32(&r.activeGoroutines, -1)
 	atomic.AddInt32(&r.activeGoroutines, 1)
@@ -99,6 +101,7 @@ func (r *receiver) receiveLoop() error {
 	}
 }
 
+// Goroutine created by receiveLoop that parses BLIP frames and dispatches messages.
 func (r *receiver) parseLoop() {
 	defer func() { // Panic handler:
 		atomic.AddInt32(&r.activeGoroutines, -1)
@@ -127,21 +130,22 @@ func (r *receiver) parseLoop() {
 	}
 
 	r.context.logFrame("parseLoop stopped")
+	r.closePendingResponses()
+
 	returnDecompressor(r.frameDecoder)
 	r.frameDecoder = nil
 }
 
+// called on the parseLoop goroutine
 func (r *receiver) fatalError(err error) {
 	r.context.log("Error: parseLoop closing socket due to error: %v", err)
 	r.parseError <- err
-	r.stop()
+	r.conn.Close(websocket.StatusAbnormalClosure, "")
 }
 
+// called by the sender
 func (r *receiver) stop() {
-	r.closePendingResponses()
-
 	r.conn.Close(websocket.StatusNormalClosure, "")
-
 	waitForZeroActiveGoroutines(r.context, &r.activeGoroutines)
 }
 
@@ -254,11 +258,13 @@ func (r *receiver) processIncomingFrame(requestNumber MessageNumber, flags frame
 		if state.atStart {
 			// Dispatch response to its request message as soon as properties are available:
 			r.context.logMessage("Received response %s", msgStream.Message)
+			msgStream.dispatched = true
 			request.responseAvailable(msgStream.Message) // Response to outgoing request
 		}
 	} else {
 		if /*state.atStart ||*/ state.atEnd {
 			// Dispatch request to the dispatcher:
+			msgStream.dispatched = true
 			r.dispatch(msgStream.Message)
 		}
 	}

@@ -480,10 +480,12 @@ func (m *msgSender) cancelOutgoing() {
 //////// RECEIVING MESSAGES:
 
 // A wrapper around an incoming Message while it's being received.
+// Called only on the receiver's parseLoop goroutine.
 type msgReceiver struct {
 	*Message
 	bytesWritten     uint64
 	propertiesBuffer []byte
+	dispatched       bool
 }
 
 func newIncomingMessage(sender *Sender, number MessageNumber, flags frameFlags) *msgReceiver {
@@ -554,11 +556,12 @@ func (m *msgReceiver) maybeSendAck(frameSize int) {
 
 // Informs an incoming message that the connection has closed
 func (m *msgReceiver) cancelIncoming() {
-	if m.inResponseTo != nil {
-		if m.bodyWriter != nil {
-			_ = m.bodyWriter.CloseWithError(ErrConnectionClosed)
-		}
+	if m.bodyWriter != nil {
+		_ = m.bodyWriter.CloseWithError(ErrConnectionClosed)
+	}
+	if !m.dispatched && m.inResponseTo != nil {
 		m.setError(BLIPErrorDomain, DisconnectedCode, "Connection closed")
+		m.dispatched = true
 		m.inResponseTo.responseAvailable(m.Message)
 	}
 }
