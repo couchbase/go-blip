@@ -12,6 +12,7 @@ package blip
 
 import (
 	gocontext "context"
+	"errors"
 	"fmt"
 	"io"
 	"math/rand"
@@ -327,12 +328,14 @@ func includesProtocol(header string, protocols []string) (string, bool) {
 
 // isCloseError returns true if the given error is expected on a websocket close (i.e. io.EOF, WS 1000, 1001, 1005, ...)
 func isCloseError(err error) bool {
-	if err == io.EOF {
-		// net package library returned EOF for close (it had no support for close handshakes)
+	if errors.Is(err, io.EOF) {
+		// - x/net/websocket returned EOF for close (it had no support for close handshakes or wrapped errors)
+		// - nhooyr/websocket occasionally wraps EOFs with other errors (e.g. "failed to get reader: failed to read frame header: EOF")
 		return true
 	}
-	// The following status codes are mostly expected for clients closing a connection,
-	// either cleanly (1000, 1001) or abruptly (1005)... Not much cause for concern.
+
+	// The following status codes are expected for clients closing a connection,
+	// either cleanly (1000, 1001) or abruptly (1005)...
 	switch websocket.CloseStatus(err) {
 	case websocket.StatusNormalClosure,
 		websocket.StatusGoingAway,
