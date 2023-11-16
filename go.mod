@@ -5,7 +5,7 @@ go 1.17
 require (
 	github.com/klauspost/compress v1.15.11
 	github.com/stretchr/testify v1.4.0
-	nhooyr.io/websocket v1.8.7
+	nhooyr.io/websocket v1.8.10
 )
 
 require (
