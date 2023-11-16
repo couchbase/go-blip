@@ -14,7 +14,6 @@ import (
 	"fmt"
 	"log"
 	"net"
-	"net/http"
 	"sync"
 	"testing"
 	"time"
@@ -78,17 +77,8 @@ func TestServerAbruptlyCloseConnectionBehavior(t *testing.T) {
 	blipContextEchoServer.LogFrames = true
 
 	// Websocket Server
-	server := blipContextEchoServer.WebSocketServer()
-
-	// HTTP Handler wrapping websocket server
-	http.Handle("/TestServerAbruptlyCloseConnectionBehavior", server)
-	listener, err := net.Listen("tcp", ":0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	go func() {
-		t.Error(http.Serve(listener, nil))
-	}()
+	listener := startTestListener(t, blipContextEchoServer)
+	defer listener.Close()
 
 	// ----------------- Setup Echo Client ----------------------------------------
 
@@ -96,12 +86,8 @@ func TestServerAbruptlyCloseConnectionBehavior(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	port := listener.Addr().(*net.TCPAddr).Port
-	destUrl := fmt.Sprintf("ws://localhost:%d/TestServerAbruptlyCloseConnectionBehavior", port)
-	sender, err := blipContextEchoClient.Dial(destUrl)
-	if err != nil {
-		t.Fatalf("Error opening WebSocket: %v", err)
-	}
+	sender := startTestClient(t, blipContextEchoClient, listener)
+	defer sender.Close()
 
 	// Create echo request
 	echoRequest := NewRequest()
@@ -122,15 +108,7 @@ func TestServerAbruptlyCloseConnectionBehavior(t *testing.T) {
 
 	// Read the echo response
 	response := echoRequest.Response() // <--- SG #3268 was causing this to block indefinitely
-	responseBody, err := response.Body()
-
-	// Assertions about echo response (these might need to be altered, maybe what's expected in this scenario is actually an error)
-	assert.True(t, err == nil)
-	assert.True(t, len(responseBody) == 0)
-
-	// TODO: add more assertions about the response.  I'm not seeing any errors, or any
-	// TODO: way to differentiate this response with a normal response other than having an empty body
-
+	assertBLIPError(t, response, BLIPErrorDomain, DisconnectedCode)
 }
 
 /*
@@ -200,12 +178,7 @@ func TestClientAbruptlyCloseConnectionBehavior(t *testing.T) {
 		sent := clientSender.Send(echoAmplifyRequest)
 		assert.True(t, sent)
 		echoAmplifyResponse := echoAmplifyRequest.Response() // <--- SG #3268 was causing this to block indefinitely
-		echoAmplifyResponseBody, _ := echoAmplifyResponse.Body()
-		assert.True(t, len(echoAmplifyResponseBody) == 0)
-
-		// TODO: add more assertions about the response.  I'm not seeing any errors, or any
-		// TODO: way to differentiate this response with a normal response other than having an empty body
-
+		assertBLIPError(t, echoAmplifyResponse, BLIPErrorDomain, DisconnectedCode)
 	}
 
 	// Create a blip profile handler to respond to echo requests and then abruptly close the socket
@@ -235,17 +208,8 @@ func TestClientAbruptlyCloseConnectionBehavior(t *testing.T) {
 	blipContextEchoServer.LogFrames = true
 
 	// Websocket Server
-	server := blipContextEchoServer.WebSocketServer()
-
-	// HTTP Handler wrapping websocket server
-	http.Handle("/TestClientAbruptlyCloseConnectionBehavior", server)
-	listener, err := net.Listen("tcp", ":0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	go func() {
-		t.Error(http.Serve(listener, nil))
-	}()
+	listener := startTestListener(t, blipContextEchoServer)
+	defer listener.Close()
 
 	// ----------------- Setup Echo Client ----------------------------------------
 
@@ -253,13 +217,6 @@ func TestClientAbruptlyCloseConnectionBehavior(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	port := listener.Addr().(*net.TCPAddr).Port
-	destUrl := fmt.Sprintf("ws://localhost:%d/TestClientAbruptlyCloseConnectionBehavior", port)
-	sender, err := blipContextEchoClient.Dial(destUrl)
-	if err != nil {
-		t.Fatalf("Error opening WebSocket: %v", err)
-	}
-
 	// Handle EchoAmplifyData that should be initiated by server in response to getting incoming echo requests
 	dispatchEchoAmplify := func(request *Message) {
 		_, err := request.Body()
@@ -272,6 +229,9 @@ func TestClientAbruptlyCloseConnectionBehavior(t *testing.T) {
 
 	}
 	blipContextEchoClient.HandlerForProfile["BLIPTest/EchoAmplifyData"] = dispatchEchoAmplify
+
+	sender := startTestClient(t, blipContextEchoClient, listener)
+	defer sender.Close()
 
 	// Create echo request
 	echoRequest := NewRequest()
@@ -295,7 +255,7 @@ func TestClientAbruptlyCloseConnectionBehavior(t *testing.T) {
 	responseBody, err := response.Body()
 
 	// Assertions about echo response (these might need to be altered, maybe what's expected in this scenario is actually an error)
-	assert.True(t, err == nil)
+	assert.NoError(t, err)
 	assert.Equal(t, "hello", string(responseBody))
 
 	// Wait until the amplify request was received by client (from server), and that the server read the response
@@ -391,21 +351,8 @@ func TestUnsupportedSubProtocol(t *testing.T) {
 			serverCtx.LogMessages = true
 			serverCtx.LogFrames = true
 
-			server := serverCtx.WebSocketServer()
-
-			mux := http.NewServeMux()
-			mux.Handle("/someBlip", server)
-			listener, err := net.Listen("tcp", ":0")
-			if err != nil {
-				panic(err)
-			}
-
-			go func() {
-				err := http.Serve(listener, mux)
-				if err != nil {
-					panic(err)
-				}
-			}()
+			listener := startTestListener(t, serverCtx)
+			defer listener.Close()
 
 			// Client
 			client, err := NewContext(testCase.ClientProtocol...)
@@ -413,13 +360,15 @@ func TestUnsupportedSubProtocol(t *testing.T) {
 				t.Fatal(err)
 			}
 			port := listener.Addr().(*net.TCPAddr).Port
-			destUrl := fmt.Sprintf("ws://localhost:%d/someBlip", port)
+			destUrl := fmt.Sprintf("ws://localhost:%d/blip", port)
 
 			s, err := client.Dial(destUrl)
 			if testCase.ExpectError {
 				assert.True(t, err != nil)
 			} else {
 				assert.Equal(t, nil, err)
+			}
+			if s != nil {
 				s.Close()
 			}
 
@@ -429,25 +378,4 @@ func TestUnsupportedSubProtocol(t *testing.T) {
 			}
 		})
 	}
-}
-
-// Wait for the WaitGroup, or return an error if the wg.Wait() doesn't return within timeout
-// TODO: this code is duplicated with code in Sync Gateway utilities_testing.go.  Should be refactored to common repo.
-func WaitWithTimeout(wg *sync.WaitGroup, timeout time.Duration) error {
-
-	// Create a channel so that a goroutine waiting on the waitgroup can send it's result (if any)
-	wgFinished := make(chan bool)
-
-	go func() {
-		wg.Wait()
-		wgFinished <- true
-	}()
-
-	select {
-	case <-wgFinished:
-		return nil
-	case <-time.After(timeout):
-		return fmt.Errorf("Timed out waiting after %v", timeout)
-	}
-
 }

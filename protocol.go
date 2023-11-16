@@ -22,9 +22,6 @@ import (
 // Every sub-protocol used by a caller should begin with this string.
 const WebSocketSubProtocolPrefix = "BLIP_3"
 
-// Domain used in errors returned by BLIP itself.
-const BLIPErrorDomain = "BLIP"
-
 //////// MESSAGE TYPE:
 
 // Enumeration of the different types of messages in the BLIP protocol.
@@ -65,6 +62,31 @@ func (t MessageType) ackType() MessageType {
 func (t MessageType) ackSourceType() MessageType {
 	return t - 4
 }
+
+//////// PROPERTIES & ERRORS:
+
+// Message property that indicates what type of message it is
+const ProfileProperty = "Profile"
+
+// Property of an error response that indicates the type of error;
+// application-defined, except for the value "BLIP" (BLIPErrorDomain).
+const ErrorDomainProperty = "Error-Domain"
+
+// Property of an error response containing a numeric error code,
+// to be interpreted in the context of the error domain; application-defined.
+const ErrorCodeProperty = "Error-Code"
+
+// Domain used in errors returned by BLIP itself.
+const BLIPErrorDomain = "BLIP"
+
+// Standard error codes in the BLIP domain:
+const (
+	BadRequestCode    = 400 // Something's invalid with the request properties or body
+	ForbiddenCode     = 403 // You're not allowed to make this request
+	NotFoundCode      = 404 // No handler for this Profile
+	HandlerFailedCode = 501 // A handler failed unexpectedly (panic, exception...)
+	DisconnectedCode  = 503 // Fake response delivered if connection closes unexpectedly
+)
 
 //////// FRAME FLAGS:
 
