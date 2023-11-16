@@ -195,17 +195,33 @@ func (context *Context) ActiveSubprotocol() string {
 	return context.activeSubProtocol
 }
 
-type blipWebsocketServer struct {
-	blipCtx *Context
+type BlipWebsocketServer struct {
+	blipCtx       *Context
+	wsHandshakeOK chan bool
 }
+
+var _ http.Handler = &BlipWebsocketServer{}
 
 // Creates an HTTP handler that accepts WebSocket connections and dispatches BLIP messages
 // to the Context.
-func (context *Context) WebSocketServer() http.Handler {
-	return &blipWebsocketServer{blipCtx: context}
+func (context *Context) WebSocketServer() *BlipWebsocketServer {
+	return &BlipWebsocketServer{
+		blipCtx:       context,
+		wsHandshakeOK: make(chan bool, 1), // buffered in-case callers don't use WaitUntilStarted
+	}
 }
 
-func (bwss *blipWebsocketServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+// WaitUntilStarted blocks until go-blip is ready to start handling BLIP messages.
+func (bwss *BlipWebsocketServer) WaitUntilStarted(ctx gocontext.Context) bool {
+	select {
+	case ok := <-bwss.wsHandshakeOK:
+		return ok
+	case <-ctx.Done():
+		return false
+	}
+}
+
+func (bwss *BlipWebsocketServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ws, err := bwss.handshake(w, r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -214,7 +230,9 @@ func (bwss *blipWebsocketServer) ServeHTTP(w http.ResponseWriter, r *http.Reques
 	bwss.handle(ws)
 }
 
-func (bwss *blipWebsocketServer) handshake(w http.ResponseWriter, r *http.Request) (*websocket.Conn, error) {
+func (bwss *BlipWebsocketServer) handshake(w http.ResponseWriter, r *http.Request) (conn *websocket.Conn, err error) {
+	defer func() { bwss.wsHandshakeOK <- err == nil }()
+
 	protocolHeader := r.Header.Get("Sec-WebSocket-Protocol")
 	protocol, found := includesProtocol(protocolHeader, bwss.blipCtx.SupportedSubProtocols)
 	if !found {
@@ -231,13 +249,14 @@ func (bwss *blipWebsocketServer) handshake(w http.ResponseWriter, r *http.Reques
 	})
 	if err != nil {
 		bwss.blipCtx.FatalErrorHandler(err)
+		return nil, err
 	}
 
 	bwss.blipCtx.activeSubProtocol = extractAppProtocolId(protocol)
 	return ws, nil
 }
 
-func (bwss *blipWebsocketServer) handle(ws *websocket.Conn) {
+func (bwss *BlipWebsocketServer) handle(ws *websocket.Conn) {
 	bwss.blipCtx.log("Start BLIP/Websocket handler")
 	sender := bwss.blipCtx.start(ws)
 	err := sender.receiver.receiveLoop()
