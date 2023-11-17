@@ -11,7 +11,7 @@ licenses/APL2.txt.
 package blip
 
 import (
-	gocontext "context"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -98,28 +98,28 @@ func NewContextCustomID(id string, appProtocolIds ...string) (*Context, error) {
 	}, nil
 }
 
-func (context *Context) start(ws *websocket.Conn) *Sender {
-	r := newReceiver(context, ws)
-	r.sender = newSender(context, ws, r)
+func (blipCtx *Context) start(ws *websocket.Conn) *Sender {
+	r := newReceiver(blipCtx, ws)
+	r.sender = newSender(blipCtx, ws, r)
 	r.sender.start()
 	return r.sender
 }
 
 // Opens a BLIP connection to a host.
-func (context *Context) Dial(url string) (*Sender, error) {
-	return context.DialConfig(&DialOptions{
+func (blipCtx *Context) Dial(url string) (*Sender, error) {
+	return blipCtx.DialConfig(&DialOptions{
 		URL: url,
 	})
 }
 
 // GetBytesSent returns the number of bytes sent since start of the context.
-func (context *Context) GetBytesSent() uint64 {
-	return context.bytesSent.Load()
+func (blipCtx *Context) GetBytesSent() uint64 {
+	return blipCtx.bytesSent.Load()
 }
 
 // GetBytesReceived returns the number of bytes received since start of the context.
-func (context *Context) GetBytesReceived() uint64 {
-	return context.bytesReceived.Load()
+func (blipCtx *Context) GetBytesReceived() uint64 {
+	return blipCtx.bytesReceived.Load()
 }
 
 // DialOptions is used by DialConfig to oepn a BLIP connection.
@@ -130,7 +130,7 @@ type DialOptions struct {
 }
 
 // Opens a BLIP connection to a host given a DialOptions, which allows the caller to specify a custom HTTP client and headers.
-func (context *Context) DialConfig(opts *DialOptions) (*Sender, error) {
+func (blipCtx *Context) DialConfig(opts *DialOptions) (*Sender, error) {
 
 	var (
 		ws                  *websocket.Conn
@@ -147,9 +147,9 @@ func (context *Context) DialConfig(opts *DialOptions) (*Sender, error) {
 
 	// Try to dial with each SupportedSubProtocols
 	// The first one that successfully dials will be the one we'll use, otherwise we'll error.
-	for _, subProtocol := range context.SupportedSubProtocols {
+	for _, subProtocol := range blipCtx.SupportedSubProtocols {
 		wsDialOpts.Subprotocols = []string{subProtocol}
-		ws, _, err = websocket.Dial(gocontext.TODO(), opts.URL, &wsDialOpts)
+		ws, _, err = websocket.Dial(context.TODO(), opts.URL, &wsDialOpts)
 		if err != nil {
 			continue
 		}
@@ -162,7 +162,7 @@ func (context *Context) DialConfig(opts *DialOptions) (*Sender, error) {
 		return nil, err
 	}
 
-	sender := context.start(ws)
+	sender := blipCtx.start(ws)
 	go func() {
 
 		// If the receiveLoop terminates, stop the sender as well
@@ -176,23 +176,23 @@ func (context *Context) DialConfig(opts *DialOptions) (*Sender, error) {
 		if err != nil {
 			if isCloseError(err) {
 				// lower log level for close
-				context.logFrame("BLIP/Websocket receiveLoop exited: %v", err)
+				blipCtx.logFrame("BLIP/Websocket receiveLoop exited: %v", err)
 			} else {
-				context.log("BLIP/Websocket receiveLoop exited with error: %v", err)
+				blipCtx.log("BLIP/Websocket receiveLoop exited with error: %v", err)
 			}
-			if context.OnExitCallback != nil {
-				context.OnExitCallback()
+			if blipCtx.OnExitCallback != nil {
+				blipCtx.OnExitCallback()
 			}
 		}
 	}()
-	context.activeSubProtocol = extractAppProtocolId(selectedSubProtocol)
+	blipCtx.activeSubProtocol = extractAppProtocolId(selectedSubProtocol)
 	return sender, nil
 }
 
 // ActiveSubprotocol returns the currently used WebSocket subprotocol for the Context, set after a successful handshake in
 // the case of a host or a successful Dial in the case of a client.
-func (context *Context) ActiveSubprotocol() string {
-	return context.activeSubProtocol
+func (blipCtx *Context) ActiveSubprotocol() string {
+	return blipCtx.activeSubProtocol
 }
 
 type BlipWebsocketServer struct {
@@ -204,15 +204,15 @@ var _ http.Handler = &BlipWebsocketServer{}
 
 // Creates an HTTP handler that accepts WebSocket connections and dispatches BLIP messages
 // to the Context.
-func (context *Context) WebSocketServer() *BlipWebsocketServer {
+func (blipCtx *Context) WebSocketServer() *BlipWebsocketServer {
 	return &BlipWebsocketServer{
-		blipCtx:       context,
+		blipCtx:       blipCtx,
 		wsHandshakeOK: make(chan bool, 1), // buffered in-case callers don't use WaitUntilStarted
 	}
 }
 
 // WaitUntilStarted blocks until go-blip is ready to start handling BLIP messages.
-func (bwss *BlipWebsocketServer) WaitUntilStarted(ctx gocontext.Context) bool {
+func (bwss *BlipWebsocketServer) WaitUntilStarted(ctx context.Context) bool {
 	select {
 	case ok := <-bwss.wsHandshakeOK:
 		return ok
@@ -272,16 +272,16 @@ func (bwss *BlipWebsocketServer) handle(ws *websocket.Conn) {
 
 //////// DISPATCHING MESSAGES:
 
-func (context *Context) dispatchRequest(request *Message, sender *Sender) {
+func (blipCtx *Context) dispatchRequest(request *Message, sender *Sender) {
 	defer func() {
 		// On return/panic, send the response:
 		response := request.Response()
 		if panicked := recover(); panicked != nil {
-			if context.HandlerPanicHandler != nil {
-				context.HandlerPanicHandler(request, response, panicked)
+			if blipCtx.HandlerPanicHandler != nil {
+				blipCtx.HandlerPanicHandler(request, response, panicked)
 			} else {
 				stack := debug.Stack()
-				context.log("PANIC handling BLIP request %v: %v:\n%s", request, panicked, stack)
+				blipCtx.log("PANIC handling BLIP request %v: %v:\n%s", request, panicked, stack)
 				if response != nil {
 					response.SetError(BLIPErrorDomain, 500, fmt.Sprintf("Panic: %v", panicked))
 				}
@@ -292,10 +292,10 @@ func (context *Context) dispatchRequest(request *Message, sender *Sender) {
 		}
 	}()
 
-	context.logMessage("Incoming BLIP Request: %s", request)
-	handler := context.HandlerForProfile[request.Properties["Profile"]]
+	blipCtx.logMessage("Incoming BLIP Request: %s", request)
+	handler := blipCtx.HandlerForProfile[request.Properties["Profile"]]
 	if handler == nil {
-		handler = context.DefaultHandler
+		handler = blipCtx.DefaultHandler
 		if handler == nil {
 			handler = Unhandled
 		}
@@ -303,34 +303,34 @@ func (context *Context) dispatchRequest(request *Message, sender *Sender) {
 	handler(request)
 }
 
-func (context *Context) dispatchResponse(response *Message) {
+func (blipCtx *Context) dispatchResponse(response *Message) {
 	defer func() {
 		// On return/panic, log a warning:
 		if panicked := recover(); panicked != nil {
 			stack := debug.Stack()
-			context.log("PANIC handling BLIP response %v: %v:\n%s", response, panicked, stack)
+			blipCtx.log("PANIC handling BLIP response %v: %v:\n%s", response, panicked, stack)
 		}
 	}()
 
-	context.logMessage("Incoming BLIP Response: %s", response)
+	blipCtx.logMessage("Incoming BLIP Response: %s", response)
 	//panic("UNIMPLEMENTED") //TODO
 }
 
 //////// LOGGING:
 
-func (context *Context) log(format string, params ...interface{}) {
-	context.Logger(LogGeneral, format, params...)
+func (blipCtx *Context) log(format string, params ...interface{}) {
+	blipCtx.Logger(LogGeneral, format, params...)
 }
 
-func (context *Context) logMessage(format string, params ...interface{}) {
-	if context.LogMessages {
-		context.Logger(LogMessage, format, params...)
+func (blipCtx *Context) logMessage(format string, params ...interface{}) {
+	if blipCtx.LogMessages {
+		blipCtx.Logger(LogMessage, format, params...)
 	}
 }
 
-func (context *Context) logFrame(format string, params ...interface{}) {
-	if context.LogFrames {
-		context.Logger(LogFrame, format, params...)
+func (blipCtx *Context) logFrame(format string, params ...interface{}) {
+	if blipCtx.LogFrames {
+		blipCtx.Logger(LogFrame, format, params...)
 	}
 }
 
