@@ -196,8 +196,8 @@ func (blipCtx *Context) ActiveSubprotocol() string {
 }
 
 type BlipWebsocketServer struct {
-	blipCtx       *Context
-	wsHandshakeOK chan bool
+	blipCtx               *Context
+	PostHandshakeCallback func(err error)
 }
 
 var _ http.Handler = &BlipWebsocketServer{}
@@ -205,20 +205,7 @@ var _ http.Handler = &BlipWebsocketServer{}
 // Creates an HTTP handler that accepts WebSocket connections and dispatches BLIP messages
 // to the Context.
 func (blipCtx *Context) WebSocketServer() *BlipWebsocketServer {
-	return &BlipWebsocketServer{
-		blipCtx:       blipCtx,
-		wsHandshakeOK: make(chan bool, 1), // buffered in-case callers don't use WaitUntilStarted
-	}
-}
-
-// WaitUntilStarted blocks until go-blip is ready to start handling BLIP messages.
-func (bwss *BlipWebsocketServer) WaitUntilStarted(ctx context.Context) bool {
-	select {
-	case ok := <-bwss.wsHandshakeOK:
-		return ok
-	case <-ctx.Done():
-		return false
-	}
+	return &BlipWebsocketServer{blipCtx: blipCtx}
 }
 
 func (bwss *BlipWebsocketServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -231,7 +218,9 @@ func (bwss *BlipWebsocketServer) ServeHTTP(w http.ResponseWriter, r *http.Reques
 }
 
 func (bwss *BlipWebsocketServer) handshake(w http.ResponseWriter, r *http.Request) (conn *websocket.Conn, err error) {
-	defer func() { bwss.wsHandshakeOK <- err == nil }()
+	if bwss.PostHandshakeCallback != nil {
+		defer bwss.PostHandshakeCallback(err)
+	}
 
 	protocolHeader := r.Header.Get("Sec-WebSocket-Protocol")
 	protocol, found := includesProtocol(protocolHeader, bwss.blipCtx.SupportedSubProtocols)
