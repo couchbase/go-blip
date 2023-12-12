@@ -442,11 +442,7 @@ func TestHandshake(t *testing.T) {
 
 	server := serverCtx.WebSocketServer()
 	wg := sync.WaitGroup{}
-	wg.Add(1)
-	server.PostHandshakeCallback = func(err error) {
-		defer wg.Done()
-		require.Error(t, err)
-	}
+	assertHandlerError(t, server, &wg)
 	mux := http.NewServeMux()
 	mux.Handle("/someBlip", server)
 	listener, err := net.Listen("tcp", ":0")
@@ -469,7 +465,7 @@ func TestHandshake(t *testing.T) {
 
 	_, err = client.Dial(destUrl)
 	require.Error(t, err)
-	require.NoError(t, WaitWithTimeout(&wg, time.Second*10))
+	assertHandlerError(t, server, &wg)
 }
 
 func TestOrigin(t *testing.T) {
@@ -565,7 +561,7 @@ func TestOrigin(t *testing.T) {
 				require.NoError(t, err)
 				sender.Close()
 			}
-			require.NoError(t, WaitWithTimeout(&wg, time.Second*10))
+			require.NoError(t, WaitWithTimeout(&wg, time.Second*5))
 
 			assertHandlerNoError(t, server, &wg)
 
@@ -575,6 +571,7 @@ func TestOrigin(t *testing.T) {
 			}
 			sender, err = client.DialConfig(&config)
 			require.NoError(t, err)
+			require.NoError(t, WaitWithTimeout(&wg, time.Second*5))
 			sender.Close()
 		})
 	}
