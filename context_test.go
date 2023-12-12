@@ -476,38 +476,42 @@ func TestOrigin(t *testing.T) {
 	protocol := "Protocol1"
 	testCases := []struct {
 		serverOrigin  []string
-		requestOrigin string
+		requestOrigin *string
 		hasError      bool
 	}{
 		{
 			serverOrigin:  []string{"example.com"},
-			requestOrigin: "https://example.com",
+			requestOrigin: StringPtr("https://example.com"),
 		},
 		{
 			serverOrigin:  []string{"foobar.com", "example.com"},
-			requestOrigin: "https://example.com",
+			requestOrigin: StringPtr("https://example.com"),
 		},
 		{
 			serverOrigin:  []string{"*"},
-			requestOrigin: "https://example.com",
+			requestOrigin: StringPtr("https://example.com"),
 		},
 		{
 			serverOrigin:  []string{"*"},
-			requestOrigin: "ws://example.com",
+			requestOrigin: StringPtr("ws://example.com"),
 		},
 		{
 			serverOrigin:  []string{"*"},
-			requestOrigin: "wss://example.com",
+			requestOrigin: StringPtr("wss://example.com"),
 		},
 		{
 			serverOrigin:  []string{"example.com"},
-			requestOrigin: "wss://example.org",
+			requestOrigin: StringPtr("wss://example.org"),
 			hasError:      true,
 		},
 		{
 			serverOrigin:  []string{""},
-			requestOrigin: "wss://example.org",
+			requestOrigin: StringPtr("wss://example.org"),
 			hasError:      true,
+		},
+		{
+			serverOrigin:  []string{"example.com"},
+			requestOrigin: nil,
 		},
 	}
 	for _, test := range testCases {
@@ -550,9 +554,10 @@ func TestOrigin(t *testing.T) {
 			config := DialOptions{
 				URL: destUrl,
 			}
-			config.HTTPHeader = make(http.Header)
-			config.HTTPHeader.Add("Origin", test.requestOrigin)
-
+			if test.requestOrigin != nil {
+				config.HTTPHeader = make(http.Header)
+				config.HTTPHeader.Add("Origin", *test.requestOrigin)
+			}
 			sender, err := client.DialConfig(&config)
 			if test.hasError {
 				require.Error(t, err)
@@ -612,4 +617,9 @@ func WaitWithTimeout(wg *sync.WaitGroup, timeout time.Duration) error {
 		return fmt.Errorf("Timed out waiting after %v", timeout)
 	}
 
+}
+
+// StringPtr returns a pointer to the string value passed in
+func StringPtr(s string) *string {
+	return &s
 }
