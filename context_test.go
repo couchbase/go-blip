@@ -27,8 +27,6 @@ import (
 // The application protocol id of the BLIP websocket subprotocol used in go-blip unit tests
 const BlipTestAppProtocolId = "GoBlipUnitTests"
 
-var emptyOrigin = []string{}
-
 var defaultContextOptions = ContextOptions{ProtocolIds: []string{BlipTestAppProtocolId}}
 
 // This was added in reaction to https://github.com/couchbase/sync_gateway/issues/3268 to either

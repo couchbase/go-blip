@@ -46,7 +46,7 @@ type Context struct {
 	// The currently used WebSocket subprotocol by the client, set on a successful handshake.
 	activeSubProtocol string
 
-	// Regular expressions that the Origin header must match (if non-empty)
+	// Patterns that the Origin header must match (if non-empty)
 	origin []string
 
 	HandlerForProfile   map[string]Handler                                // Handler function for a request Profile
@@ -82,7 +82,7 @@ type LogContext interface {
 type ContextOptions struct {
 	// The WebSocket subprotocols that this blip context is constrained to. Eg: BLIP_3+CBMobile_2
 	ProtocolIds []string
-	// Regular expressions that the Origin header must match (if non-empty). This matches only on hostname: ["example.com", "*"]
+	// Patterns that the Origin header must match (if non-empty). This matches only on hostname: ["example.com", "*"]
 	Origin []string
 }
 
