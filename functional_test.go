@@ -31,7 +31,7 @@ import (
 // aka a "functional test".
 func TestEchoRoundTrip(t *testing.T) {
 
-	blipContextEchoServer, err := NewContext(BlipTestAppProtocolId)
+	blipContextEchoServer, err := NewContext(defaultContextOptions)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +79,7 @@ func TestEchoRoundTrip(t *testing.T) {
 
 	// ----------------- Setup Echo Client ----------------------------------------
 
-	blipContextEchoClient, err := NewContext(BlipTestAppProtocolId)
+	blipContextEchoClient, err := NewContext(defaultContextOptions)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +135,7 @@ func TestEchoRoundTrip(t *testing.T) {
 func TestSenderPing(t *testing.T) {
 
 	// server
-	serverCtx, err := NewContext(BlipTestAppProtocolId)
+	serverCtx, err := NewContext(defaultContextOptions)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,7 +152,7 @@ func TestSenderPing(t *testing.T) {
 	}()
 
 	// client
-	clientCtx, err := NewContext(BlipTestAppProtocolId)
+	clientCtx, err := NewContext(defaultContextOptions)
 	if err != nil {
 		t.Fatal(err)
 	}
