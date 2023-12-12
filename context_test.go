@@ -20,11 +20,14 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"nhooyr.io/websocket"
 )
 
 // The application protocol id of the BLIP websocket subprotocol used in go-blip unit tests
 const BlipTestAppProtocolId = "GoBlipUnitTests"
+
+var defaultContextOptions = ContextOptions{ProtocolIds: []string{BlipTestAppProtocolId}}
 
 // This was added in reaction to https://github.com/couchbase/sync_gateway/issues/3268 to either
 // confirm or deny erroneous behavior w.r.t sockets being abruptly closed.  The main question attempted
@@ -34,16 +37,15 @@ const BlipTestAppProtocolId = "GoBlipUnitTests"
 //
 // Test:
 //
-// - Start two blip contexts: an echo server and an echo client
-// - The echo server is configured to respond to incoming echo requests and return responses, with the twist
-//       that it abruptly terminates websocket before returning from callback
-// - The echo client tries to read the response after sending the request
-// - Expected: the echo client should receive some sort of error when trying to read the response, since the server abruptly terminated the connection
-// - Actual: the echo client blocks indefinitely trying to read the response
-//
+//   - Start two blip contexts: an echo server and an echo client
+//   - The echo server is configured to respond to incoming echo requests and return responses, with the twist
+//     that it abruptly terminates websocket before returning from callback
+//   - The echo client tries to read the response after sending the request
+//   - Expected: the echo client should receive some sort of error when trying to read the response, since the server abruptly terminated the connection
+//   - Actual: the echo client blocks indefinitely trying to read the response
 func TestServerAbruptlyCloseConnectionBehavior(t *testing.T) {
 
-	blipContextEchoServer, err := NewContext(BlipTestAppProtocolId)
+	blipContextEchoServer, err := NewContext(defaultContextOptions)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +95,7 @@ func TestServerAbruptlyCloseConnectionBehavior(t *testing.T) {
 
 	// ----------------- Setup Echo Client ----------------------------------------
 
-	blipContextEchoClient, err := NewContext(BlipTestAppProtocolId)
+	blipContextEchoClient, err := NewContext(defaultContextOptions)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +137,6 @@ func TestServerAbruptlyCloseConnectionBehavior(t *testing.T) {
 }
 
 /*
-
 This was added in reaction to https://github.com/couchbase/sync_gateway/issues/3268 to either
 confirm or deny erroneous behavior w.r.t sockets being abruptly closed.  The main question attempted
 to be answered is:
@@ -148,39 +149,38 @@ to issue an outbound request to a client.  Is there a simpler way?
 
 The test does the following steps:
 
-
 ┌─────────────────────────────┐                                  ┌─────────────────────────────┐
 │    blipContextEchoClient    │                                  │    blipContextEchoServer    │
 └──────────────┬──────────────┘                                  └──────────────┬──────────────┘
-               │                                                                │
-               ├──────────────────────────────Dial──────────────────────────────▶
-               │                                                                │
-               │                               Echo                             │
-               ├─────────────────────────────Request────────────────────────────▶
-               │                                                                │
-               │                              Echo                              │
-               ◀────────────────────────────Response────────────────────────────┤
-               │                                                                │
-               │                               Echo                             │
-               ◀─────────────────────────────Amplify ───────────────────────────┤
-               │                             Request                            │
-               │                                                                │
-               │                              Close                             │
-               ├────────────────────────────Connection──────────────────────────▶
-               │                                                                │
-               │                                                                │
-               │                        Echo Response Never                     │
-               ├ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─Happens─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─▶
-               │                          Shouldn't Block                       │
-               │                                                                │
-               │                                                                │
-               │                                                                │
-               ▼                                                                ▼
 
+	│                                                                │
+	├──────────────────────────────Dial──────────────────────────────▶
+	│                                                                │
+	│                               Echo                             │
+	├─────────────────────────────Request────────────────────────────▶
+	│                                                                │
+	│                              Echo                              │
+	◀────────────────────────────Response────────────────────────────┤
+	│                                                                │
+	│                               Echo                             │
+	◀─────────────────────────────Amplify ───────────────────────────┤
+	│                             Request                            │
+	│                                                                │
+	│                              Close                             │
+	├────────────────────────────Connection──────────────────────────▶
+	│                                                                │
+	│                                                                │
+	│                        Echo Response Never                     │
+	├ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─Happens─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─▶
+	│                          Shouldn't Block                       │
+	│                                                                │
+	│                                                                │
+	│                                                                │
+	▼                                                                ▼
 */
 func TestClientAbruptlyCloseConnectionBehavior(t *testing.T) {
 
-	blipContextEchoServer, err := NewContext(BlipTestAppProtocolId)
+	blipContextEchoServer, err := NewContext(defaultContextOptions)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -252,7 +252,7 @@ func TestClientAbruptlyCloseConnectionBehavior(t *testing.T) {
 
 	// ----------------- Setup Echo Client ----------------------------------------
 
-	blipContextEchoClient, err := NewContext(BlipTestAppProtocolId)
+	blipContextEchoClient, err := NewContext(defaultContextOptions)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -387,7 +387,7 @@ func TestUnsupportedSubProtocol(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.Name, func(t *testing.T) {
-			serverCtx, err := NewContext(testCase.ServerProtocols...)
+			serverCtx, err := NewContext(ContextOptions{ProtocolIds: testCase.ServerProtocols})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -411,7 +411,7 @@ func TestUnsupportedSubProtocol(t *testing.T) {
 			}()
 
 			// Client
-			client, err := NewContext(testCase.ClientProtocol...)
+			client, err := NewContext(ContextOptions{ProtocolIds: testCase.ClientProtocol})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -430,6 +430,136 @@ func TestUnsupportedSubProtocol(t *testing.T) {
 				assert.Equal(t, testCase.ActiveServerProtocol, serverCtx.ActiveSubprotocol())
 				assert.Equal(t, serverCtx.ActiveSubprotocol(), client.ActiveSubprotocol())
 			}
+		})
+	}
+}
+
+func TestHandshake(t *testing.T) {
+	serverCtx, err := NewContext(ContextOptions{ProtocolIds: []string{"ServerProtocol"}})
+	require.NoError(t, err)
+	serverCtx.LogMessages = true
+	serverCtx.LogFrames = true
+
+	server := serverCtx.WebSocketServer()
+	mux := http.NewServeMux()
+	mux.Handle("/someBlip", server)
+	listener, err := net.Listen("tcp", ":0")
+	require.NoError(t, err)
+	defer func() {
+		assert.NoError(t, listener.Close())
+	}()
+
+	go func() {
+		// error will happen when listener closes in defer
+		_ = http.Serve(listener, mux)
+	}()
+
+	// Client
+	client, err := NewContext(ContextOptions{ProtocolIds: []string{"ClientProtocol"}})
+	require.NoError(t, err)
+
+	port := listener.Addr().(*net.TCPAddr).Port
+	destUrl := fmt.Sprintf("ws://localhost:%d/someBlip", port)
+
+	_, err = client.Dial(destUrl)
+	require.Error(t, err)
+}
+
+func TestOrigin(t *testing.T) {
+	protocol := "Protocol1"
+	testCases := []struct {
+		serverOrigin  []string
+		requestOrigin *string
+		hasError      bool
+	}{
+		{
+			serverOrigin:  []string{"example.com"},
+			requestOrigin: StringPtr("https://example.com"),
+		},
+		{
+			serverOrigin:  []string{"foobar.com", "example.com"},
+			requestOrigin: StringPtr("https://example.com"),
+		},
+		{
+			serverOrigin:  []string{"*"},
+			requestOrigin: StringPtr("https://example.com"),
+		},
+		{
+			serverOrigin:  []string{"*"},
+			requestOrigin: StringPtr("ws://example.com"),
+		},
+		{
+			serverOrigin:  []string{"*"},
+			requestOrigin: StringPtr("wss://example.com"),
+		},
+		{
+			serverOrigin:  []string{"example.com"},
+			requestOrigin: StringPtr("wss://example.org"),
+			hasError:      true,
+		},
+		{
+			serverOrigin:  []string{""},
+			requestOrigin: StringPtr("wss://example.org"),
+			hasError:      true,
+		},
+		{
+			serverOrigin:  []string{"example.com"},
+			requestOrigin: nil,
+		},
+	}
+	for _, test := range testCases {
+		t.Run(fmt.Sprintf("%v", test), func(t *testing.T) {
+			listener, err := net.Listen("tcp", ":0")
+			require.NoError(t, err)
+			defer func() {
+				assert.NoError(t, listener.Close())
+			}()
+
+			serverCtx, err := NewContext(ContextOptions{
+				ProtocolIds: []string{protocol},
+				Origin:      test.serverOrigin,
+			})
+			require.NoError(t, err)
+			serverCtx.LogMessages = true
+			serverCtx.LogFrames = true
+
+			server := serverCtx.WebSocketServer()
+			mux := http.NewServeMux()
+			mux.Handle("/someBlip", server)
+
+			go func() {
+				// error will happen when listener closes
+				_ = http.Serve(listener, mux)
+			}()
+
+			// Client
+			client, err := NewContext(ContextOptions{ProtocolIds: []string{protocol}})
+			require.NoError(t, err)
+
+			port := listener.Addr().(*net.TCPAddr).Port
+			destUrl := fmt.Sprintf("ws://localhost:%d/someBlip", port)
+			config := DialOptions{
+				URL: destUrl,
+			}
+			if test.requestOrigin != nil {
+				config.HTTPHeader = make(http.Header)
+				config.HTTPHeader.Add("Origin", *test.requestOrigin)
+			}
+			sender, err := client.DialConfig(&config)
+			if test.hasError {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				sender.Close()
+			}
+
+			// run without origin header
+			config = DialOptions{
+				URL: destUrl,
+			}
+			sender, err = client.DialConfig(&config)
+			require.NoError(t, err)
+			sender.Close()
 		})
 	}
 }
@@ -453,4 +583,9 @@ func WaitWithTimeout(wg *sync.WaitGroup, timeout time.Duration) error {
 		return fmt.Errorf("Timed out waiting after %v", timeout)
 	}
 
+}
+
+// StringPtr returns a pointer to the string value passed in
+func StringPtr(s string) *string {
+	return &s
 }
