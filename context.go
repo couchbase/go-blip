@@ -219,7 +219,9 @@ func (bwss *BlipWebsocketServer) ServeHTTP(w http.ResponseWriter, r *http.Reques
 
 func (bwss *BlipWebsocketServer) handshake(w http.ResponseWriter, r *http.Request) (conn *websocket.Conn, err error) {
 	if bwss.PostHandshakeCallback != nil {
-		defer bwss.PostHandshakeCallback(err)
+		defer func() {
+			bwss.PostHandshakeCallback(err)
+		}()
 	}
 
 	protocolHeader := r.Header.Get("Sec-WebSocket-Protocol")

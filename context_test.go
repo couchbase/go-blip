@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"nhooyr.io/websocket"
 )
 
@@ -429,6 +430,41 @@ func TestUnsupportedSubProtocol(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestHandshake(t *testing.T) {
+	serverCtx, err := NewContext("ServerProtocol")
+	require.NoError(t, err)
+	serverCtx.LogMessages = true
+	serverCtx.LogFrames = true
+
+	server := serverCtx.WebSocketServer()
+	wg := sync.WaitGroup{}
+	wg.Add(1)
+	server.PostHandshakeCallback = func(err error) {
+		defer wg.Done()
+		require.Error(t, err)
+	}
+	mux := http.NewServeMux()
+	mux.Handle("/someBlip", server)
+	listener, err := net.Listen("tcp", ":0")
+	require.NoError(t, err)
+
+	go func() {
+		err := http.Serve(listener, mux)
+		require.NoError(t, err)
+	}()
+
+	// Client
+	client, err := NewContext("ClientProtocol")
+	require.NoError(t, err)
+
+	port := listener.Addr().(*net.TCPAddr).Port
+	destUrl := fmt.Sprintf("ws://localhost:%d/someBlip", port)
+
+	_, err = client.Dial(destUrl)
+	require.Error(t, err)
+	wg.Wait()
 }
 
 // Wait for the WaitGroup, or return an error if the wg.Wait() doesn't return within timeout
