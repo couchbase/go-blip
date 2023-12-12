@@ -46,6 +46,9 @@ type Context struct {
 	// The currently used WebSocket subprotocol by the client, set on a successful handshake.
 	activeSubProtocol string
 
+	// Regular expressions that the Origin header must match (if non-empty)
+	origin []string
+
 	HandlerForProfile   map[string]Handler                                // Handler function for a request Profile
 	DefaultHandler      Handler                                           // Handler for all otherwise unhandled requests
 	FatalErrorHandler   func(error)                                       // Called when connection has a fatal error
@@ -76,17 +79,24 @@ type LogContext interface {
 
 //////// SETUP:
 
+type ContextOptions struct {
+	// The WebSocket subprotocols that this blip context is constrained to. Eg: BLIP_3+CBMobile_2
+	ProtocolIds []string
+	// Regular expressions that the Origin header must match (if non-empty). This matches only on hostname: ["example.com", "*"]
+	Origin []string
+}
+
 // Creates a new Context with an empty dispatch table.
-func NewContext(appProtocolIds ...string) (*Context, error) {
-	return NewContextCustomID(fmt.Sprintf("%x", rand.Int31()), appProtocolIds...)
+func NewContext(opts ContextOptions) (*Context, error) {
+	return NewContextCustomID(fmt.Sprintf("%x", rand.Int31()), opts)
 }
 
 // Creates a new Context with a custom ID, which can be helpful to differentiate logs between other blip contexts
 // in the same process. The AppProtocolId ensures that this client will only connect to peers that have agreed
 // upon the same application layer level usage of BLIP.  For example "CBMobile_2" is the AppProtocolId for the
 // Couchbase Mobile replication protocol.
-func NewContextCustomID(id string, appProtocolIds ...string) (*Context, error) {
-	if len(appProtocolIds) == 0 {
+func NewContextCustomID(id string, opts ContextOptions) (*Context, error) {
+	if len(opts.ProtocolIds) == 0 {
 		return nil, fmt.Errorf("provided protocolIds cannot be empty")
 	}
 
@@ -94,7 +104,8 @@ func NewContextCustomID(id string, appProtocolIds ...string) (*Context, error) {
 		HandlerForProfile:     map[string]Handler{},
 		Logger:                logPrintfWrapper(),
 		ID:                    id,
-		SupportedSubProtocols: formatWebSocketSubProtocols(appProtocolIds...),
+		SupportedSubProtocols: formatWebSocketSubProtocols(opts.ProtocolIds...),
+		origin:                opts.Origin,
 	}, nil
 }
 
@@ -211,7 +222,6 @@ func (blipCtx *Context) WebSocketServer() *BlipWebsocketServer {
 func (bwss *BlipWebsocketServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ws, err := bwss.handshake(w, r)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	bwss.handle(ws)
@@ -229,17 +239,17 @@ func (bwss *BlipWebsocketServer) handshake(w http.ResponseWriter, r *http.Reques
 	if !found {
 		stringSeperatedProtocols := strings.Join(bwss.blipCtx.SupportedSubProtocols, ",")
 		bwss.blipCtx.log("Error: Client doesn't support any of WS protocols: %s only %s", stringSeperatedProtocols, protocolHeader)
-		return nil, fmt.Errorf("I only speak %s protocols", stringSeperatedProtocols)
+		err := fmt.Errorf("I only speak %s protocols", stringSeperatedProtocols)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return nil, err
 	}
 
 	ws, err := websocket.Accept(w, r, &websocket.AcceptOptions{
-		Subprotocols: []string{protocol},
-		// InsecureSkipVerify controls whether Origins are checked or not.
-		InsecureSkipVerify: true,
-		CompressionMode:    websocket.CompressionDisabled,
+		Subprotocols:    []string{protocol},
+		CompressionMode: websocket.CompressionDisabled,
+		OriginPatterns:  bwss.blipCtx.origin,
 	})
 	if err != nil {
-		bwss.blipCtx.FatalErrorHandler(err)
 		return nil, err
 	}
 

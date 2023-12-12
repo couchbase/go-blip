@@ -27,6 +27,10 @@ import (
 // The application protocol id of the BLIP websocket subprotocol used in go-blip unit tests
 const BlipTestAppProtocolId = "GoBlipUnitTests"
 
+var emptyOrigin = []string{}
+
+var defaultContextOptions = ContextOptions{ProtocolIds: []string{BlipTestAppProtocolId}}
+
 // This was added in reaction to https://github.com/couchbase/sync_gateway/issues/3268 to either
 // confirm or deny erroneous behavior w.r.t sockets being abruptly closed.  The main question attempted
 // to be answered is:
@@ -43,7 +47,7 @@ const BlipTestAppProtocolId = "GoBlipUnitTests"
 //   - Actual: the echo client blocks indefinitely trying to read the response
 func TestServerAbruptlyCloseConnectionBehavior(t *testing.T) {
 
-	blipContextEchoServer, err := NewContext(BlipTestAppProtocolId)
+	blipContextEchoServer, err := NewContext(defaultContextOptions)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +97,7 @@ func TestServerAbruptlyCloseConnectionBehavior(t *testing.T) {
 
 	// ----------------- Setup Echo Client ----------------------------------------
 
-	blipContextEchoClient, err := NewContext(BlipTestAppProtocolId)
+	blipContextEchoClient, err := NewContext(defaultContextOptions)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -178,7 +182,7 @@ The test does the following steps:
 */
 func TestClientAbruptlyCloseConnectionBehavior(t *testing.T) {
 
-	blipContextEchoServer, err := NewContext(BlipTestAppProtocolId)
+	blipContextEchoServer, err := NewContext(defaultContextOptions)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -250,7 +254,7 @@ func TestClientAbruptlyCloseConnectionBehavior(t *testing.T) {
 
 	// ----------------- Setup Echo Client ----------------------------------------
 
-	blipContextEchoClient, err := NewContext(BlipTestAppProtocolId)
+	blipContextEchoClient, err := NewContext(defaultContextOptions)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -385,7 +389,7 @@ func TestUnsupportedSubProtocol(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.Name, func(t *testing.T) {
-			serverCtx, err := NewContext(testCase.ServerProtocols...)
+			serverCtx, err := NewContext(ContextOptions{ProtocolIds: testCase.ServerProtocols})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -409,7 +413,7 @@ func TestUnsupportedSubProtocol(t *testing.T) {
 			}()
 
 			// Client
-			client, err := NewContext(testCase.ClientProtocol...)
+			client, err := NewContext(ContextOptions{ProtocolIds: testCase.ClientProtocol})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -433,7 +437,7 @@ func TestUnsupportedSubProtocol(t *testing.T) {
 }
 
 func TestHandshake(t *testing.T) {
-	serverCtx, err := NewContext("ServerProtocol")
+	serverCtx, err := NewContext(ContextOptions{ProtocolIds: []string{"ServerProtocol"}})
 	require.NoError(t, err)
 	serverCtx.LogMessages = true
 	serverCtx.LogFrames = true
@@ -449,14 +453,17 @@ func TestHandshake(t *testing.T) {
 	mux.Handle("/someBlip", server)
 	listener, err := net.Listen("tcp", ":0")
 	require.NoError(t, err)
+	defer func() {
+		assert.NoError(t, listener.Close())
+	}()
 
 	go func() {
-		err := http.Serve(listener, mux)
-		require.NoError(t, err)
+		// error will happen when listener closes in defer
+		_ = http.Serve(listener, mux)
 	}()
 
 	// Client
-	client, err := NewContext("ClientProtocol")
+	client, err := NewContext(ContextOptions{ProtocolIds: []string{"ClientProtocol"}})
 	require.NoError(t, err)
 
 	port := listener.Addr().(*net.TCPAddr).Port
@@ -464,7 +471,128 @@ func TestHandshake(t *testing.T) {
 
 	_, err = client.Dial(destUrl)
 	require.Error(t, err)
-	wg.Wait()
+	require.NoError(t, WaitWithTimeout(&wg, time.Second*10))
+}
+
+func TestOrigin(t *testing.T) {
+	protocol := "Protocol1"
+	testCases := []struct {
+		serverOrigin  []string
+		requestOrigin string
+		hasError      bool
+	}{
+		{
+			serverOrigin:  []string{"example.com"},
+			requestOrigin: "https://example.com",
+		},
+		{
+			serverOrigin:  []string{"foobar.com", "example.com"},
+			requestOrigin: "https://example.com",
+		},
+		{
+			serverOrigin:  []string{"*"},
+			requestOrigin: "https://example.com",
+		},
+		{
+			serverOrigin:  []string{"*"},
+			requestOrigin: "ws://example.com",
+		},
+		{
+			serverOrigin:  []string{"*"},
+			requestOrigin: "wss://example.com",
+		},
+		{
+			serverOrigin:  []string{"example.com"},
+			requestOrigin: "wss://example.org",
+			hasError:      true,
+		},
+		{
+			serverOrigin:  []string{""},
+			requestOrigin: "wss://example.org",
+			hasError:      true,
+		},
+	}
+	for _, test := range testCases {
+		t.Run(fmt.Sprintf("%v", test), func(t *testing.T) {
+			listener, err := net.Listen("tcp", ":0")
+			require.NoError(t, err)
+			defer func() {
+				assert.NoError(t, listener.Close())
+			}()
+
+			serverCtx, err := NewContext(ContextOptions{
+				ProtocolIds: []string{protocol},
+				Origin:      test.serverOrigin,
+			})
+			require.NoError(t, err)
+			serverCtx.LogMessages = true
+			serverCtx.LogFrames = true
+
+			server := serverCtx.WebSocketServer()
+			wg := sync.WaitGroup{}
+			if test.hasError {
+				assertHandlerError(t, server, &wg)
+			} else {
+				assertHandlerNoError(t, server, &wg)
+			}
+			mux := http.NewServeMux()
+			mux.Handle("/someBlip", server)
+
+			go func() {
+				// error will happen when listener closes
+				_ = http.Serve(listener, mux)
+			}()
+
+			// Client
+			client, err := NewContext(ContextOptions{ProtocolIds: []string{protocol}})
+			require.NoError(t, err)
+
+			port := listener.Addr().(*net.TCPAddr).Port
+			destUrl := fmt.Sprintf("ws://localhost:%d/someBlip", port)
+			config := DialOptions{
+				URL: destUrl,
+			}
+			config.HTTPHeader = make(http.Header)
+			config.HTTPHeader.Add("Origin", test.requestOrigin)
+
+			sender, err := client.DialConfig(&config)
+			if test.hasError {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				sender.Close()
+			}
+			require.NoError(t, WaitWithTimeout(&wg, time.Second*10))
+
+			assertHandlerNoError(t, server, &wg)
+
+			// run without origin header
+			config = DialOptions{
+				URL: destUrl,
+			}
+			sender, err = client.DialConfig(&config)
+			require.NoError(t, err)
+			sender.Close()
+		})
+	}
+}
+
+// assert that the server handshake callback is called with an error.
+func assertHandlerError(t *testing.T, server *BlipWebsocketServer, wg *sync.WaitGroup) {
+	wg.Add(1)
+	server.PostHandshakeCallback = func(err error) {
+		defer wg.Done()
+		require.Error(t, err)
+	}
+}
+
+// assert that the server handshake callback is called without an error.
+func assertHandlerNoError(t *testing.T, server *BlipWebsocketServer, wg *sync.WaitGroup) {
+	wg.Add(1)
+	server.PostHandshakeCallback = func(err error) {
+		defer wg.Done()
+		require.NoError(t, err)
+	}
 }
 
 // Wait for the WaitGroup, or return an error if the wg.Wait() doesn't return within timeout
