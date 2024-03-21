@@ -12,7 +12,7 @@ package blip
 
 import (
 	"bytes"
-	"io/ioutil"
+	"io"
 	"log"
 	"sync"
 	"testing"
@@ -157,7 +157,7 @@ func TestUrgentMessageOrdering(t *testing.T) { // Test passes, but some assertio
 		assert.False(t, mq.nextMessageIsUrgent())
 
 		// set the msg.encoder to something so that the next urgent message will go to the head of the line
-		msg.encoder = ioutil.NopCloser(&bytes.Buffer{})
+		msg.encoder = io.NopCloser(&bytes.Buffer{})
 
 	}
 
