@@ -67,6 +67,8 @@ type Context struct {
 
 	bytesSent     atomic.Uint64 // Number of bytes sent
 	bytesReceived atomic.Uint64 // Number of bytes received
+
+	cancelCtx context.Context // When cancelled, closes all connections.  Terminates receiveLoop(s), which triggers sender and parseLoop stop
 }
 
 // Defines a logging interface for use within the blip codebase.  Implemented by Context.
@@ -131,6 +133,14 @@ func (blipCtx *Context) GetBytesSent() uint64 {
 // GetBytesReceived returns the number of bytes received since start of the context.
 func (blipCtx *Context) GetBytesReceived() uint64 {
 	return blipCtx.bytesReceived.Load()
+}
+
+// Opens a BLIP connection to a host.
+func (blipCtx *Context) CancelCtx() context.Context {
+	if blipCtx.cancelCtx != nil {
+		return blipCtx.cancelCtx
+	}
+	return context.TODO()
 }
 
 // DialOptions is used by DialConfig to oepn a BLIP connection.
@@ -208,6 +218,7 @@ func (blipCtx *Context) ActiveSubprotocol() string {
 
 type BlipWebsocketServer struct {
 	blipCtx               *Context
+	ctx                   context.Context // Cancellable context to trigger server stop
 	PostHandshakeCallback func(err error)
 }
 

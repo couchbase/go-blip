@@ -12,7 +12,6 @@ package blip
 
 import (
 	"bytes"
-	"context"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -74,7 +73,7 @@ func (r *receiver) receiveLoop() error {
 
 	for {
 		// Receive the next raw WebSocket frame:
-		_, frame, err := r.conn.Read(context.TODO())
+		_, frame, err := r.conn.Read(r.context.CancelCtx())
 		if err != nil {
 			if isCloseError(err) {
 				// lower log level for close

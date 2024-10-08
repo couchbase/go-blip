@@ -11,6 +11,7 @@ licenses/APL2.txt.
 package blip
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net"
@@ -575,6 +576,128 @@ func TestOrigin(t *testing.T) {
 			sender.Close()
 		})
 	}
+}
+
+// TestServerContextClose tests closing server using cancellable context, ensure that clients are disconnected
+//
+// Test:
+//
+//   - Start two blip contexts: an echo server and an echo client
+//   - The echo server is configured to respond to incoming echo requests and return responses
+//   - The echo client tries to read the response after sending the request
+//   - Expected: the echo client should receive some sort of error when trying to read the response, since the server abruptly terminated the connection
+//   - Actual: the echo client blocks indefinitely trying to read the response
+func TestServerContextClose(t *testing.T) {
+
+	blipContextEchoServer, err := NewContext(defaultContextOptions)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	receivedRequests := sync.WaitGroup{}
+
+	// ----------------- Setup Echo Server that abruptly terminates socket -------------------------
+
+	// Create a blip profile handler to respond to echo requests and then abruptly close the socket
+	dispatchEcho := func(request *Message) {
+		defer receivedRequests.Done()
+		body, err := request.Body()
+		if err != nil {
+			log.Printf("ERROR reading body of %s: %s", request, err)
+			return
+		}
+		if request.Properties["Content-Type"] != "application/octet-stream" {
+			t.Fatalf("Incorrect properties: %#x", request.Properties)
+		}
+		if response := request.Response(); response != nil {
+			response.SetBody(body)
+			response.Properties["Content-Type"] = request.Properties["Content-Type"]
+		}
+	}
+
+	// Blip setup
+	blipContextEchoServer.HandlerForProfile["BLIPTest/EchoData"] = dispatchEcho
+	blipContextEchoServer.LogMessages = true
+	blipContextEchoServer.LogFrames = true
+
+	serverCancelCtx, cancelFunc := context.WithCancel(context.Background())
+	blipContextEchoServer.cancelCtx = serverCancelCtx
+
+	// Websocket Server
+	server := blipContextEchoServer.WebSocketServer()
+
+	// HTTP Handler wrapping websocket server
+	http.Handle("/TestServerContextClose", server)
+	listener, err := net.Listen("tcp", ":0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() {
+		t.Error(http.Serve(listener, nil))
+	}()
+
+	// ----------------- Setup Echo Client ----------------------------------------
+
+	blipContextEchoClient, err := NewContext(defaultContextOptions)
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := listener.Addr().(*net.TCPAddr).Port
+	destUrl := fmt.Sprintf("ws://localhost:%d/TestServerContextClose", port)
+	sender, err := blipContextEchoClient.Dial(destUrl)
+	if err != nil {
+		t.Fatalf("Error opening WebSocket: %v", err)
+	}
+
+	var closeWg, delayWg sync.WaitGroup
+
+	// Start a goroutine to send echo request every 100 ms
+	delayWg.Add(1)
+	closeWg.Add(1)
+	go func() {
+		defer closeWg.Done()
+		for i := 0; i < 100; i++ {
+			if i == 10 {
+				delayWg.Done()
+			}
+			// Create echo request
+			echoResponseBody := []byte("hello")
+			echoRequest := NewRequest()
+			echoRequest.SetProfile("BLIPTest/EchoData")
+			echoRequest.Properties["Content-Type"] = "application/octet-stream"
+			echoRequest.SetBody(echoResponseBody)
+			receivedRequests.Add(1)
+			sent := sender.Send(echoRequest)
+			assert.True(t, sent)
+
+			// Read the echo response
+			response := echoRequest.Response() // <--- SG #3268 was causing this to block indefinitely
+			responseBody, err := response.Body()
+			assert.True(t, err == nil)
+			if len(responseBody) == 0 {
+				log.Printf("empty response, connection closed")
+				return
+			}
+			assert.Equal(t, echoResponseBody, responseBody)
+			time.Sleep(time.Millisecond * 100)
+		}
+	}()
+
+	delayWg.Wait()
+
+	cancelFunc()
+
+	closeWg.Wait()
+	//request.Sender.conn.Close(websocket.StatusNoStatusRcvd, "")
+	/*
+		// Wait until the echo server profile handler was invoked and completely finished (and thus abruptly closed socket)
+		err = WaitWithTimeout(&receivedRequests, time.Second*60)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+	*/
+
 }
 
 // assert that the server handshake callback is called with an error.
