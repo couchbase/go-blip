@@ -661,7 +661,7 @@ func TestServerContextClose(t *testing.T) {
 		for {
 			select {
 			case <-timeout:
-				t.Fatalf("Echo client connection wasn't closed before timeout expired")
+				t.Error("Echo client connection wasn't closed before timeout expired")
 				return
 			case <-ticker.C:
 				{
