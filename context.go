@@ -135,12 +135,16 @@ func (blipCtx *Context) GetBytesReceived() uint64 {
 	return blipCtx.bytesReceived.Load()
 }
 
-// Opens a BLIP connection to a host.
-func (blipCtx *Context) CancelCtx() context.Context {
+// GetCancelCtx returns cancelc=Ctx if it has been set.  Otherwise returns non-cancellable context.
+func (blipCtx *Context) GetCancelCtx() context.Context {
 	if blipCtx.cancelCtx != nil {
 		return blipCtx.cancelCtx
 	}
 	return context.TODO()
+}
+
+func (blipCtx *Context) SetCancelCtx(cancelCtx context.Context) {
+	blipCtx.cancelCtx = cancelCtx
 }
 
 // DialOptions is used by DialConfig to oepn a BLIP connection.

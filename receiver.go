@@ -73,7 +73,7 @@ func (r *receiver) receiveLoop() error {
 
 	for {
 		// Receive the next raw WebSocket frame:
-		_, frame, err := r.conn.Read(r.context.CancelCtx())
+		_, frame, err := r.conn.Read(r.context.GetCancelCtx())
 		if err != nil {
 			if isCloseError(err) {
 				// lower log level for close

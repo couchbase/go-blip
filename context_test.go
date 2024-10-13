@@ -581,12 +581,10 @@ func TestOrigin(t *testing.T) {
 // TestServerContextClose tests closing server using cancellable context, ensure that clients are disconnected
 //
 // Test:
-//
 //   - Start two blip contexts: an echo server and an echo client
 //   - The echo server is configured to respond to incoming echo requests and return responses
-//   - The echo client tries to read the response after sending the request
-//   - Expected: the echo client should receive some sort of error when trying to read the response, since the server abruptly terminated the connection
-//   - Actual: the echo client blocks indefinitely trying to read the response
+//   - The echo client sends echo requests on a loop
+//   - Expected: the echo client should receive some sort of error when the server closes the connection, and should not block
 func TestServerContextClose(t *testing.T) {
 
 	blipContextEchoServer, err := NewContext(defaultContextOptions)
@@ -596,9 +594,9 @@ func TestServerContextClose(t *testing.T) {
 
 	receivedRequests := sync.WaitGroup{}
 
-	// ----------------- Setup Echo Server that abruptly terminates socket -------------------------
+	// ----------------- Setup Echo Server that will be closed via cancellation context -------------------------
 
-	// Create a blip profile handler to respond to echo requests and then abruptly close the socket
+	// Create a blip profile handler to respond to echo requests
 	dispatchEcho := func(request *Message) {
 		defer receivedRequests.Done()
 		body, err := request.Body()
@@ -621,7 +619,7 @@ func TestServerContextClose(t *testing.T) {
 	blipContextEchoServer.LogFrames = true
 
 	serverCancelCtx, cancelFunc := context.WithCancel(context.Background())
-	blipContextEchoServer.cancelCtx = serverCancelCtx
+	blipContextEchoServer.SetCancelCtx(serverCancelCtx)
 
 	// Websocket Server
 	server := blipContextEchoServer.WebSocketServer()
@@ -632,12 +630,13 @@ func TestServerContextClose(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer listener.Close()
 	go func() {
-		t.Error(http.Serve(listener, nil))
+		err := http.Serve(listener, nil)
+		log.Printf("server goroutine closed with error: %v", err)
 	}()
 
 	// ----------------- Setup Echo Client ----------------------------------------
-
 	blipContextEchoClient, err := NewContext(defaultContextOptions)
 	if err != nil {
 		t.Fatal(err)
@@ -651,52 +650,61 @@ func TestServerContextClose(t *testing.T) {
 
 	var closeWg, delayWg sync.WaitGroup
 
-	// Start a goroutine to send echo request every 100 ms
-	delayWg.Add(1)
-	closeWg.Add(1)
+	// Start a goroutine to send echo request every 100 ms, time out after 30s (if test fails)
+	delayWg.Add(1) // wait for connection and messages to be sent before cancelling server context
+	closeWg.Add(1) // wait for client to disconnect before exiting test
 	go func() {
 		defer closeWg.Done()
-		for i := 0; i < 100; i++ {
-			if i == 10 {
-				delayWg.Done()
-			}
-			// Create echo request
-			echoResponseBody := []byte("hello")
-			echoRequest := NewRequest()
-			echoRequest.SetProfile("BLIPTest/EchoData")
-			echoRequest.Properties["Content-Type"] = "application/octet-stream"
-			echoRequest.SetBody(echoResponseBody)
-			receivedRequests.Add(1)
-			sent := sender.Send(echoRequest)
-			assert.True(t, sent)
-
-			// Read the echo response
-			response := echoRequest.Response() // <--- SG #3268 was causing this to block indefinitely
-			responseBody, err := response.Body()
-			assert.True(t, err == nil)
-			if len(responseBody) == 0 {
-				log.Printf("empty response, connection closed")
+		timeout := time.After(time.Second * 30)
+		ticker := time.NewTicker(time.Millisecond * 50)
+		echoCount := 0
+		for {
+			select {
+			case <-timeout:
+				t.Fatalf("Echo client connection wasn't closed before timeout expired")
 				return
+			case <-ticker.C:
+				{
+					echoCount++
+					// After sending 10 echoes, close delayWg to trigger server-side cancellation
+					log.Printf("Sending echo %v", echoCount)
+					if echoCount == 10 {
+						delayWg.Done()
+					}
+					// Create echo request
+					echoResponseBody := []byte("hello")
+					echoRequest := NewRequest()
+					echoRequest.SetProfile("BLIPTest/EchoData")
+					echoRequest.Properties["Content-Type"] = "application/octet-stream"
+					echoRequest.SetBody(echoResponseBody)
+					receivedRequests.Add(1)
+					sent := sender.Send(echoRequest)
+					assert.True(t, sent)
+
+					// Read the echo response.  Closed connection will result in empty response, as EOF message
+					// isn't currently returned by blip client
+					response := echoRequest.Response()
+					responseBody, err := response.Body()
+					assert.True(t, err == nil)
+					if len(responseBody) == 0 {
+						log.Printf("empty response, connection closed")
+						return
+					}
+
+					assert.Equal(t, echoResponseBody, responseBody)
+				}
 			}
-			assert.Equal(t, echoResponseBody, responseBody)
-			time.Sleep(time.Millisecond * 100)
 		}
 	}()
 
+	// Wait for client to start sending echo messages before stopping server
 	delayWg.Wait()
 
+	// Cancel context on server
 	cancelFunc()
 
+	// Wait for client echo loop to exit due to closed connection before exiting test
 	closeWg.Wait()
-	//request.Sender.conn.Close(websocket.StatusNoStatusRcvd, "")
-	/*
-		// Wait until the echo server profile handler was invoked and completely finished (and thus abruptly closed socket)
-		err = WaitWithTimeout(&receivedRequests, time.Second*60)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-	*/
 
 }
 
