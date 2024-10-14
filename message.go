@@ -16,7 +16,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"runtime/debug"
 	"sync"
@@ -181,7 +180,7 @@ func (m *Message) Body() ([]byte, error) {
 		if m.readingBody {
 			panic("Already reading body as a stream")
 		}
-		body, err := ioutil.ReadAll(m.reader)
+		body, err := io.ReadAll(m.reader)
 		if err != nil {
 			return nil, err
 		}
@@ -351,7 +350,7 @@ func (m *Message) ReadFrom(reader io.Reader) error {
 		return err
 	}
 	var err error
-	m.body, err = ioutil.ReadAll(reader)
+	m.body, err = io.ReadAll(reader)
 	return err
 }
 
