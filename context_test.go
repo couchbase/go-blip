@@ -587,7 +587,12 @@ func TestOrigin(t *testing.T) {
 //   - Expected: the echo client should receive some sort of error when the server closes the connection, and should not block
 func TestServerContextClose(t *testing.T) {
 
-	blipContextEchoServer, err := NewContext(defaultContextOptions)
+	serverCancelCtx, cancelFunc := context.WithCancel(context.Background())
+	contextOptionsWithCancel := ContextOptions{
+		ProtocolIds: []string{BlipTestAppProtocolId},
+		CancelCtx:   serverCancelCtx,
+	}
+	blipContextEchoServer, err := NewContext(contextOptionsWithCancel)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -617,9 +622,6 @@ func TestServerContextClose(t *testing.T) {
 	blipContextEchoServer.HandlerForProfile["BLIPTest/EchoData"] = dispatchEcho
 	blipContextEchoServer.LogMessages = true
 	blipContextEchoServer.LogFrames = true
-
-	serverCancelCtx, cancelFunc := context.WithCancel(context.Background())
-	blipContextEchoServer.SetCancelCtx(serverCancelCtx)
 
 	// Websocket Server
 	server := blipContextEchoServer.WebSocketServer()
