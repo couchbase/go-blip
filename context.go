@@ -67,6 +67,8 @@ type Context struct {
 
 	bytesSent     atomic.Uint64 // Number of bytes sent
 	bytesReceived atomic.Uint64 // Number of bytes received
+
+	cancelCtx context.Context // When cancelled, closes all connections.  Terminates receiveLoop(s), which triggers sender and parseLoop stop
 }
 
 // Defines a logging interface for use within the blip codebase.  Implemented by Context.
@@ -84,6 +86,9 @@ type ContextOptions struct {
 	ProtocolIds []string
 	// Patterns that the Origin header must match (if non-empty). This matches only on hostname: ["example.com", "*"]
 	Origin []string
+	// Cancellation context.  If specified, when context is cancelled the websocket connect will be closed,
+	// by terminating receiveLoop (which triggers sender and parseLoop stop).  This will not send a close message.
+	CancelCtx context.Context
 }
 
 // Creates a new Context with an empty dispatch table.
@@ -106,6 +111,7 @@ func NewContextCustomID(id string, opts ContextOptions) (*Context, error) {
 		ID:                    id,
 		SupportedSubProtocols: formatWebSocketSubProtocols(opts.ProtocolIds...),
 		origin:                opts.Origin,
+		cancelCtx:             opts.CancelCtx,
 	}, nil
 }
 
@@ -131,6 +137,14 @@ func (blipCtx *Context) GetBytesSent() uint64 {
 // GetBytesReceived returns the number of bytes received since start of the context.
 func (blipCtx *Context) GetBytesReceived() uint64 {
 	return blipCtx.bytesReceived.Load()
+}
+
+// GetCancelCtx returns a cancellation context if it has been set in the ContextOptions.  Otherwise returns non-cancellable context.
+func (blipCtx *Context) GetCancelCtx() context.Context {
+	if blipCtx.cancelCtx != nil {
+		return blipCtx.cancelCtx
+	}
+	return context.TODO()
 }
 
 // DialOptions is used by DialConfig to oepn a BLIP connection.
@@ -208,6 +222,7 @@ func (blipCtx *Context) ActiveSubprotocol() string {
 
 type BlipWebsocketServer struct {
 	blipCtx               *Context
+	ctx                   context.Context // Cancellable context to trigger server stop
 	PostHandshakeCallback func(err error)
 }
 
