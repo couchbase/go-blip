@@ -50,6 +50,7 @@ type receiver struct {
 	pendingRequests          msgStreamerMap // Unfinished REQ messages being assembled
 	pendingResponses         msgStreamerMap // Unfinished RES messages being assembled
 	maxPendingResponseNumber MessageNumber  // Largest RES # I've seen
+	stopped                  atomic.Bool    // True if I've been stopped by the caller
 }
 
 func newReceiver(context *Context, conn *websocket.Conn) *receiver {
@@ -64,7 +65,7 @@ func newReceiver(context *Context, conn *websocket.Conn) *receiver {
 	}
 }
 
-func (r *receiver) receiveLoop() error {
+func (r *receiver) receiveLoop(handlerStopped *atomic.Bool) error {
 	defer atomic.AddInt32(&r.activeGoroutines, -1)
 	atomic.AddInt32(&r.activeGoroutines, 1)
 	go r.parseLoop()
@@ -75,7 +76,9 @@ func (r *receiver) receiveLoop() error {
 		// Receive the next raw WebSocket frame:
 		_, frame, err := r.conn.Read(r.context.GetCancelCtx())
 		if err != nil {
-			if isCloseError(err) {
+			if handlerStopped.Load() {
+				return nil
+			} else if isCloseError(err) {
 				// lower log level for close
 				r.context.logFrame("receiveLoop stopped: %v", err)
 			} else if parseErr := errorFromChannel(r.parseError); parseErr != nil {

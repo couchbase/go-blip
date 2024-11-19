@@ -728,6 +728,78 @@ func assertHandlerNoError(t *testing.T, server *BlipWebsocketServer, wg *sync.Wa
 	}
 }
 
+// TestWebSocketServerStopHandler tests stopping the handler with a specific error code.
+func TestWebSocketServerStopHandler(t *testing.T) {
+
+	opts := ContextOptions{
+		ProtocolIds: []string{BlipTestAppProtocolId},
+	}
+	blipContextEchoServer, err := NewContext(opts)
+	require.NoError(t, err)
+
+	receivedRequests := sync.WaitGroup{}
+
+	// ----------------- Setup Echo Server that will be closed via cancellation context -------------------------
+
+	// Create a blip profile handler to respond to echo requests
+	dispatchEcho := func(request *Message) {
+		defer receivedRequests.Done()
+		body, err := request.Body()
+		require.NoError(t, err)
+		require.Equal(t, "application/octet-stream", request.Properties["Content-Type"])
+		if response := request.Response(); response != nil {
+			response.SetBody(body)
+			response.Properties["Content-Type"] = request.Properties["Content-Type"]
+		}
+	}
+
+	// Blip setup
+	blipContextEchoServer.HandlerForProfile["BLIPTest/EchoData"] = dispatchEcho
+	blipContextEchoServer.LogMessages = true
+	blipContextEchoServer.LogFrames = true
+
+	// Websocket Server
+	server := blipContextEchoServer.WebSocketServer()
+
+	// HTTP Handler wrapping websocket server
+	http.Handle("/TestServerContextClose", server)
+	listener, err := net.Listen("tcp", ":0")
+	require.NoError(t, err)
+	defer listener.Close()
+	go func() {
+		_ = http.Serve(listener, nil)
+	}()
+
+	// ----------------- Setup Echo Client ----------------------------------------
+	blipContextEchoClient, err := NewContext(defaultContextOptions)
+	require.NoError(t, err)
+	port := listener.Addr().(*net.TCPAddr).Port
+	destUrl := fmt.Sprintf("ws://localhost:%d/TestServerContextClose", port)
+	sender, err := blipContextEchoClient.Dial(destUrl)
+	require.NoError(t, err)
+
+	// Create echo request
+	echoResponseBody := []byte("hello")
+	echoRequest := NewRequest()
+	echoRequest.SetProfile("BLIPTest/EchoData")
+	echoRequest.Properties["Content-Type"] = "application/octet-stream"
+	echoRequest.SetBody(echoResponseBody)
+	receivedRequests.Add(1)
+	require.True(t, sender.Send(echoRequest))
+
+	// Read the echo response.  Closed connection will result in empty response, as EOF message
+	// isn't currently returned by blip client
+	response := echoRequest.Response()
+	responseBody, err := response.Body()
+	require.NoError(t, err)
+	require.Equal(t, echoResponseBody, responseBody)
+
+	fmt.Printf("Closing connection\n")
+	server.StopHandler(websocket.StatusAbnormalClosure)
+	//fmt.Printf("sender=%+v\n", sender.conn)
+	require.True(t, false)
+}
+
 // Wait for the WaitGroup, or return an error if the wg.Wait() doesn't return within timeout
 // TODO: this code is duplicated with code in Sync Gateway utilities_testing.go.  Should be refactored to common repo.
 func WaitWithTimeout(wg *sync.WaitGroup, timeout time.Duration) error {

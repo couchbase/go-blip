@@ -147,7 +147,7 @@ func (blipCtx *Context) GetCancelCtx() context.Context {
 	return context.TODO()
 }
 
-// DialOptions is used by DialConfig to oepn a BLIP connection.
+// DialOptions is used by DialConfig to open a BLIP connection.
 type DialOptions struct {
 	URL        string
 	HTTPClient *http.Client
@@ -197,7 +197,8 @@ func (blipCtx *Context) DialConfig(opts *DialOptions) (*Sender, error) {
 		incrReceiverGoroutines()
 		defer decrReceiverGoroutines()
 
-		err := sender.receiver.receiveLoop()
+		var handlersStopped atomic.Bool
+		err := sender.receiver.receiveLoop(&handlersStopped)
 		if err != nil {
 			if isCloseError(err) {
 				// lower log level for close
@@ -224,6 +225,8 @@ type BlipWebsocketServer struct {
 	blipCtx               *Context
 	ctx                   context.Context // Cancellable context to trigger server stop
 	PostHandshakeCallback func(err error)
+	websockets            map[*websocket.Conn]struct{}
+	handlersStopped       atomic.Bool
 }
 
 var _ http.Handler = &BlipWebsocketServer{}
@@ -231,7 +234,7 @@ var _ http.Handler = &BlipWebsocketServer{}
 // Creates an HTTP handler that accepts WebSocket connections and dispatches BLIP messages
 // to the Context.
 func (blipCtx *Context) WebSocketServer() *BlipWebsocketServer {
-	return &BlipWebsocketServer{blipCtx: blipCtx}
+	return &BlipWebsocketServer{blipCtx: blipCtx, websockets: make(map[*websocket.Conn]struct{})}
 }
 
 func (bwss *BlipWebsocketServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -239,7 +242,9 @@ func (bwss *BlipWebsocketServer) ServeHTTP(w http.ResponseWriter, r *http.Reques
 	if err != nil {
 		return
 	}
+	bwss.websockets[ws] = struct{}{}
 	bwss.handle(ws)
+	delete(bwss.websockets, ws)
 }
 
 func (bwss *BlipWebsocketServer) handshake(w http.ResponseWriter, r *http.Request) (conn *websocket.Conn, err error) {
@@ -275,15 +280,35 @@ func (bwss *BlipWebsocketServer) handshake(w http.ResponseWriter, r *http.Reques
 func (bwss *BlipWebsocketServer) handle(ws *websocket.Conn) {
 	bwss.blipCtx.log("Start BLIP/Websocket handler")
 	sender := bwss.blipCtx.start(ws)
-	err := sender.receiver.receiveLoop()
+	err := sender.receiver.receiveLoop(&bwss.handlersStopped)
 	sender.Stop()
-	if err != nil && !isCloseError(err) {
+	// if handlerStopped is true, it means the handler was stopped by StopHandler
+	if bwss.handlersStopped.Load() {
+		return
+	} else if err != nil && !isCloseError(err) {
 		bwss.blipCtx.log("BLIP/Websocket Handler exited with error: %v", err)
 		if bwss.blipCtx.FatalErrorHandler != nil {
 			bwss.blipCtx.FatalErrorHandler(err)
 		}
 	}
 	ws.Close(websocket.StatusNormalClosure, "")
+}
+
+func (bwss *BlipWebsocketServer) StopHandlers(status websocket.StatusCode) error {
+	bwss.handlersStopped.Store(true)
+	fmt.Printf("Closing websocket connection with status: %v\n", status)
+	var errs []error
+	for ws := range bwss.websockets {
+		fmt.Printf("Closing websocket connection\n")
+		err := ws.Close(status, "")
+		if err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("errors closing websockets: %w", errors.Join(errs...))
+	}
+	return nil
 }
 
 //////// DISPATCHING MESSAGES:
