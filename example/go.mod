@@ -1,6 +1,6 @@
 module github.com/couchbase/go-blip/example
 
-go 1.18
+go 1.23
 
 require (
 	github.com/couchbase/go-blip v0.0.0-00010101000000-000000000000

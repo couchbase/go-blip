@@ -1,6 +1,6 @@
 module github.com/couchbase/go-blip
 
-go 1.17
+go 1.23
 
 require (
 	github.com/klauspost/compress v1.15.11
