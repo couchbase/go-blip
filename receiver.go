@@ -20,7 +20,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"nhooyr.io/websocket"
+	"github.com/coder/websocket"
 )
 
 const checksumLength = 4

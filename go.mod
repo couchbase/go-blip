@@ -3,9 +3,9 @@ module github.com/couchbase/go-blip
 go 1.23
 
 require (
-	github.com/klauspost/compress v1.15.11
+	github.com/coder/websocket v1.8.12
+	github.com/klauspost/compress v1.17.11
 	github.com/stretchr/testify v1.4.0
-	nhooyr.io/websocket v1.8.10
 )
 
 require (

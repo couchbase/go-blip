@@ -22,7 +22,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"nhooyr.io/websocket"
+	"github.com/coder/websocket"
 )
 
 // A function that handles an incoming BLIP request and optionally sends a response.

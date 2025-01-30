@@ -9,10 +9,10 @@ require (
 )
 
 require (
+	github.com/coder/websocket v1.8.12 // indirect
 	github.com/inconshreveable/mousetrap v1.0.0 // indirect
-	github.com/klauspost/compress v1.15.11 // indirect
+	github.com/klauspost/compress v1.17.11 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
-	nhooyr.io/websocket v1.8.10 // indirect
 )
 
 replace github.com/couchbase/go-blip => ../
