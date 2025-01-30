@@ -21,7 +21,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"nhooyr.io/websocket"
+	"github.com/coder/websocket"
 )
 
 // Size of frame to send by default. This is arbitrary.
