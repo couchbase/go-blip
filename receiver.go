@@ -291,7 +291,7 @@ func (r *receiver) getPendingResponse(requestNumber MessageNumber, flags frameFl
 	msgStream = r.pendingResponses[requestNumber]
 	if msgStream != nil {
 		if msgStream.bytesWritten == 0 {
-			msgStream.message.flags = flags // set flags based on 1st frame of response
+			msgStream.message.flags.Store(&flags) // set flags based on 1st frame of response
 		}
 		if complete {
 			delete(r.pendingResponses, requestNumber)
