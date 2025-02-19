@@ -226,6 +226,8 @@ func BenchmarkMessage(b *testing.B) {
 
 	blipContextClient, err := NewContext(defaultContextOptions)
 	require.NoError(b, err)
+	blipContextClient.LogMessages = true
+	blipContextClient.LogFrames = true
 	port := listener.Addr().(*net.TCPAddr).Port
 	destUrl := fmt.Sprintf("ws://localhost:%d/blip", port)
 	sender, err := blipContextClient.Dial(destUrl)
