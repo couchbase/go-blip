@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Round trip a high number of messages over a loopback websocket
@@ -190,4 +191,59 @@ func expvarToInt64(v expvar.Var) int64 {
 	}
 	i, _ := strconv.ParseInt(v.String(), 10, 64)
 	return i
+}
+
+func BenchmarkMessage(b *testing.B) {
+
+	blipServer, err := NewContext(defaultContextOptions)
+	require.NoError(b, err)
+
+	handleMessage := func(request *Message) {
+		_, err := request.Body()
+		if err != nil {
+			b.Fatalf("Failed to read body: %v", err)
+		}
+		response := request.Response()
+		response.SetBody([]byte("[]"))
+	}
+
+	profileName := "Profile"
+
+	// Blip setup
+	blipServer.HandlerForProfile[profileName] = handleMessage
+
+	// Websocket Server
+	server := blipServer.WebSocketServer()
+
+	// HTTP Handler wrapping websocket server
+	mux := http.NewServeMux()
+	mux.Handle("/blip", server)
+	listener, err := net.Listen("tcp", ":0")
+	require.NoError(b, err)
+	go func() {
+		require.NoError(b, http.Serve(listener, mux))
+	}()
+
+	blipContextClient, err := NewContext(defaultContextOptions)
+	require.NoError(b, err)
+	blipContextClient.LogMessages = true
+	blipContextClient.LogFrames = true
+	port := listener.Addr().(*net.TCPAddr).Port
+	destUrl := fmt.Sprintf("ws://localhost:%d/blip", port)
+	sender, err := blipContextClient.Dial(destUrl)
+	require.NoError(b, err)
+
+	b.ResetTimer()
+	for range b.N {
+		request := NewRequest()
+		request.SetProfile(profileName)
+		request.SetBody([]byte("hello"))
+
+		if sender.Send(request) != true {
+			b.Fatalf("Failed to send message")
+		}
+		// block to read request
+		_ = request.Response()
+
+	}
 }
