@@ -19,18 +19,19 @@ import (
 	"log"
 	"runtime/debug"
 	"sync"
+	"sync/atomic"
 )
 
 type MessageNumber uint32
 
 // A BLIP message. It could be a request or response or error, and it could be from me or the peer.
 type Message struct {
-	Outgoing   bool          // Is this a message created locally?
-	Sender     *Sender       // The connection that sent this message.
-	Properties Properties    // The message's metadata, similar to HTTP headers.
-	body       []byte        // The message body. MIME type is defined by "Content-Type" property
-	number     MessageNumber // The sequence number of the message in the connection.
-	flags      frameFlags    // Message flags as seen on the first frame.
+	Outgoing   bool                       // Is this a message created locally?
+	Sender     *Sender                    // The connection that sent this message.
+	Properties Properties                 // The message's metadata, similar to HTTP headers.
+	body       []byte                     // The message body. MIME type is defined by "Content-Type" property
+	number     MessageNumber              // The sequence number of the message in the connection.
+	flags      atomic.Pointer[frameFlags] // Message flags as seen on the first frame.
 	bytesSent  uint64
 	bytesAcked uint64
 
@@ -56,7 +57,7 @@ func (message *Message) Close() (err error) {
 
 // Returns a string describing the message for debugging purposes
 func (message *Message) String() string {
-	return frameString(message.number, message.flags)
+	return frameString(message.number, *message.flags.Load())
 }
 
 func frameString(number MessageNumber, flags frameFlags) string {
@@ -72,12 +73,13 @@ func frameString(number MessageNumber, flags frameFlags) string {
 
 // Creates a new outgoing request.
 func NewRequest() *Message {
-	return &Message{
-		flags:      frameFlags(RequestType),
+	m := &Message{
 		Outgoing:   true,
 		Properties: Properties{},
 		cond:       sync.NewCond(&sync.Mutex{}),
 	}
+	m.flags.Store(ptr(frameFlags(RequestType)))
+	return m
 }
 
 // The order in which a request message was sent.
@@ -90,17 +92,17 @@ func (message *Message) SerialNumber() MessageNumber {
 }
 
 // The type of message: request, response or error
-func (message *Message) Type() MessageType { return MessageType(message.flags.messageType()) }
+func (message *Message) Type() MessageType { return MessageType(message.flags.Load().messageType()) }
 
 // True if the message has Urgent priority.
-func (message *Message) Urgent() bool { return message.flags&kUrgent != 0 }
+func (message *Message) Urgent() bool { return *message.flags.Load()&kUrgent != 0 }
 
 // True if the message doesn't want a reply.
-func (message *Message) NoReply() bool { return message.flags&kNoReply != 0 }
+func (message *Message) NoReply() bool { return *message.flags.Load()&kNoReply != 0 }
 
 // True if the message's body was GZIP-compressed in transit.
 // (This is for informative purposes only; you don't need to unzip it yourself!)
-func (message *Message) Compressed() bool { return message.flags&kCompressed != 0 }
+func (message *Message) Compressed() bool { return *message.flags.Load()&kCompressed != 0 }
 
 // Marks an outgoing message as having high priority. Urgent messages get a higher amount of
 // bandwidth. This is useful for streaming media.
@@ -125,11 +127,13 @@ func (request *Message) SetNoReply(noReply bool) {
 
 func (message *Message) setFlag(flag frameFlags, value bool) {
 	message.assertMutable()
+	flags := *message.flags.Load()
 	if value {
-		message.flags |= flag
+		flags |= flag
 	} else {
-		message.flags &^= flag
+		flags &^= flag
 	}
+	message.flags.Store(&flags)
 }
 
 func (message *Message) assertMutable() {
@@ -228,7 +232,7 @@ func (m *Message) SetJSONBodyAsBytes(jsonBytes []byte) {
 // Multiple calls return the same object.
 // If called on a NoReply request, this returns nil.
 func (request *Message) Response() *Message {
-	if request.flags&kNoReply != 0 {
+	if *request.flags.Load()&kNoReply != 0 {
 		return nil
 	}
 	if request.Type() != RequestType {
@@ -257,7 +261,8 @@ func (request *Message) Response() *Message {
 		return request.response
 	}
 	response := request.createResponse()
-	response.flags |= request.flags & kUrgent
+	newFlags := *response.flags.Load() | *request.flags.Load()&kUrgent
+	response.flags.Store(&newFlags)
 	response.Properties = Properties{}
 	request.response = response
 	return response
@@ -271,7 +276,8 @@ func (response *Message) SetError(errDomain string, errCode int, message string)
 		if response.Type() == RequestType {
 			panic("Can't call SetError on a request")
 		}
-		response.flags = (response.flags &^ kTypeMask) | frameFlags(ErrorType)
+		newFlags := *response.flags.Load()&^kTypeMask | frameFlags(ErrorType)
+		response.flags.Store(&newFlags)
 		response.Properties = Properties{
 			"Error-Domain": errDomain,
 			"Error-Code":   fmt.Sprintf("%d", errCode),
@@ -285,13 +291,14 @@ func (response *Message) SetError(errDomain string, errCode int, message string)
 //////// INTERNALS:
 
 func newIncomingMessage(sender *Sender, number MessageNumber, flags frameFlags, reader io.ReadCloser) *Message {
-	return &Message{
+	m := &Message{
 		Sender: sender,
-		flags:  flags | kMoreComing,
 		number: number,
 		reader: reader,
 		cond:   sync.NewCond(&sync.Mutex{}),
 	}
+	m.flags.Store(ptr(flags | kMoreComing))
+	return m
 }
 
 // Creates an incoming message given properties and body; exposed only for testing.
@@ -309,16 +316,17 @@ func NewParsedIncomingMessage(sender *Sender, msgType MessageType, properties Pr
 }
 
 func (request *Message) createResponse() *Message {
+	flags := frameFlags(ResponseType) | (*request.flags.Load() & kUrgent)
 	response := &Message{
-		flags:        frameFlags(ResponseType) | (request.flags & kUrgent),
 		number:       request.number,
 		Outgoing:     !request.Outgoing,
 		inResponseTo: request,
 		cond:         sync.NewCond(&sync.Mutex{}),
 	}
 	if !response.Outgoing {
-		response.flags |= kMoreComing
+		flags |= kMoreComing
 	}
+	response.flags.Store(&flags)
 	return response
 }
 
@@ -409,7 +417,7 @@ func (m *Message) nextFrameToSend(maxSize int) ([]byte, frameFlags) {
 	}
 
 	frame := make([]byte, maxSize)
-	flags := m.flags
+	flags := *m.flags.Load()
 	size, err := io.ReadFull(m.encoder, frame)
 	if err == nil {
 		flags |= kMoreComing
@@ -421,3 +429,7 @@ func (m *Message) nextFrameToSend(maxSize int) ([]byte, frameFlags) {
 
 // A callback function that takes a message and returns nothing
 type MessageCallback func(*Message)
+
+func ptr[T any](v T) *T {
+	return &v
+}
