@@ -38,16 +38,19 @@ func TestStopSenderClearsAllMessageQueues(t *testing.T) {
 
 	// Add some messages to the queue + icebox queue
 	for i := 0; i < 10; i++ {
+		msg := NewRequest()
 		msgProp := Properties{
 			"id": fmt.Sprint(i),
 		}
-		sender.queue.push(&Message{Properties: msgProp, Outgoing: true})
+		msg.Properties = msgProp
+		sender.queue.push(msg)
 	}
 	for i := 10; i < 15; i++ {
+		msg := NewRequest()
 		msgProp := Properties{
 			"id": fmt.Sprint(i),
 		}
-		msg := &Message{Properties: msgProp}
+		msg.Properties = msgProp
 		sender.icebox[msgKey{msgNo: MessageNumber(i)}] = msg
 	}
 
