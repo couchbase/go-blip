@@ -118,11 +118,23 @@ func (sender *Sender) Backlog() (incomingRequests, incomingResponses, outgoingRe
 func (sender *Sender) Stop() {
 	sender.ctxCancel()
 	sender.queue.stop()
+	sender.closeIceBox()
 	if sender.receiver != nil {
 		sender.receiver.stop()
 	}
 
 	waitForZeroActiveGoroutines(sender.context, &sender.activeGoroutines)
+}
+
+// closeIceBox will close all messages set in iceBox map to clear any remaining goroutines associated with
+// those messages, see CBG-4572
+func (sender *Sender) closeIceBox() {
+	for _, msg := range sender.icebox {
+		if err := msg.Close(); err != nil {
+			sender.context.logFrame("Warning: Sender encountered error closing messages in icebox. Error: %v", err)
+		}
+	}
+	sender.icebox = nil
 }
 
 func (sender *Sender) Close() {
