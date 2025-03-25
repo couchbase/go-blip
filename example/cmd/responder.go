@@ -12,7 +12,7 @@ package cmd
 
 import (
 	"fmt"
-	"io/ioutil"
+	"io"
 	"log"
 	"net/http"
 	"runtime"
@@ -51,7 +51,7 @@ func responder() {
 	runtime.GOMAXPROCS(maxProcs)
 	log.Printf("Set GOMAXPROCS to %d", maxProcs)
 
-	context, err := blip.NewContext(BlipExampleAppProtocolId)
+	context, err := blip.NewContext(blip.ContextOptions{ProtocolIds: []string{BlipExampleAppProtocolId}})
 	if err != nil {
 		panic(err)
 	}
@@ -89,10 +89,10 @@ func dispatchEcho(request *blip.Message) {
 }
 
 func httpEcho(r http.ResponseWriter, request *http.Request) {
-	body, err := ioutil.ReadAll(request.Body)
+	body, err := io.ReadAll(request.Body)
 	log.Printf("Got HTTP %s %s (%d bytes)", request.Method, request.RequestURI, len(body))
 	if err != nil {
-		log.Printf("ERROR reading body of %s: %s", request, err)
+		log.Printf("ERROR reading body of %+v: %s", request, err)
 		return
 	}
 	if len(body) == 0 {
@@ -109,5 +109,8 @@ func httpEcho(r http.ResponseWriter, request *http.Request) {
 
 	r.Header().Add("Content-Type", "application/octet-stream")
 	r.WriteHeader(201)
-	r.Write(body)
+	_, err = r.Write(body)
+	if err != nil {
+		log.Printf("ERROR writing response: %s", err)
+	}
 }

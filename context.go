@@ -11,7 +11,8 @@ licenses/APL2.txt.
 package blip
 
 import (
-	gocontext "context"
+	"context"
+	"errors"
 	"fmt"
 	"io"
 	"math/rand"
@@ -20,7 +21,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"nhooyr.io/websocket"
+	"github.com/coder/websocket"
 )
 
 // Defines how incoming requests are dispatched to handler functions.
@@ -32,6 +33,9 @@ type Context struct {
 
 	// The currently used WebSocket subprotocol by the client, set on a successful handshake.
 	activeSubProtocol string
+
+	// Patterns that the Origin header must match (if non-empty)
+	origin []string
 
 	RequestHandler      AsyncHandler        // Callback that handles incoming requests
 	FatalErrorHandler   FatalErrorHandler   // Called when connection has a fatal error
@@ -54,6 +58,8 @@ type Context struct {
 
 	bytesSent     atomic.Uint64 // Number of bytes sent
 	bytesReceived atomic.Uint64 // Number of bytes received
+
+	cancelCtx context.Context // When cancelled, closes all connections.  Terminates receiveLoop(s), which triggers sender and parseLoop stop
 }
 
 // A function called when a Handler function panics.
@@ -72,17 +78,27 @@ type LogContext interface {
 
 //////// SETUP:
 
+type ContextOptions struct {
+	// The WebSocket subprotocols that this blip context is constrained to. Eg: BLIP_3+CBMobile_2
+	ProtocolIds []string
+	// Patterns that the Origin header must match (if non-empty). This matches only on hostname: ["example.com", "*"]
+	Origin []string
+	// Cancellation context.  If specified, when context is cancelled the websocket connect will be closed,
+	// by terminating receiveLoop (which triggers sender and parseLoop stop).  This will not send a close message.
+	CancelCtx context.Context
+}
+
 // Creates a new Context with an empty dispatch table.
-func NewContext(appProtocolIds ...string) (*Context, error) {
-	return NewContextCustomID(fmt.Sprintf("%x", rand.Int31()), appProtocolIds...)
+func NewContext(opts ContextOptions) (*Context, error) {
+	return NewContextCustomID(fmt.Sprintf("%x", rand.Int31()), opts)
 }
 
 // Creates a new Context with a custom ID, which can be helpful to differentiate logs between other blip contexts
 // in the same process. The AppProtocolId ensures that this client will only connect to peers that have agreed
 // upon the same application layer level usage of BLIP.  For example "CBMobile_2" is the AppProtocolId for the
 // Couchbase Mobile replication protocol.
-func NewContextCustomID(id string, appProtocolIds ...string) (*Context, error) {
-	if len(appProtocolIds) == 0 {
+func NewContextCustomID(id string, opts ContextOptions) (*Context, error) {
+	if len(opts.ProtocolIds) == 0 {
 		return nil, fmt.Errorf("provided protocolIds cannot be empty")
 	}
 
@@ -90,39 +106,49 @@ func NewContextCustomID(id string, appProtocolIds ...string) (*Context, error) {
 		HandlerForProfile:     map[string]Handler{},
 		Logger:                logPrintfWrapper(),
 		ID:                    id,
-		SupportedSubProtocols: formatWebSocketSubProtocols(appProtocolIds...),
+		SupportedSubProtocols: formatWebSocketSubProtocols(opts.ProtocolIds...),
+		origin:                opts.Origin,
+		cancelCtx:             opts.CancelCtx,
 	}, nil
 }
 
-func (context *Context) start(ws *websocket.Conn) *Sender {
-	if context.RequestHandler == nil {
+func (blipCtx *Context) start(ws *websocket.Conn) *Sender {
+	if blipCtx.RequestHandler == nil {
 		// Compatibility mode: If the app hasn't set a RequestHandler, set one that uses the old
 		// handlerForProfile and defaultHandler.
-		context.RequestHandler = context.compatibilityHandler
-	} else if len(context.HandlerForProfile) > 0 || context.DefaultHandler != nil {
+		blipCtx.RequestHandler = blipCtx.compatibilityHandler
+	} else if len(blipCtx.HandlerForProfile) > 0 || blipCtx.DefaultHandler != nil {
 		panic("blip.Context cannot have both a RequestHandler and legacy handlerForProfile or defaultHandler")
 	}
-	r := newReceiver(context, ws)
-	r.sender = newSender(context, ws, r)
+	r := newReceiver(blipCtx, ws)
+	r.sender = newSender(blipCtx, ws, r)
 	r.sender.start()
 	return r.sender
 }
 
 // Opens a BLIP connection to a host.
-func (context *Context) Dial(url string) (*Sender, error) {
-	return context.DialConfig(&DialOptions{
+func (blipCtx *Context) Dial(url string) (*Sender, error) {
+	return blipCtx.DialConfig(&DialOptions{
 		URL: url,
 	})
 }
 
 // GetBytesSent returns the number of bytes sent since start of the context.
-func (context *Context) GetBytesSent() uint64 {
-	return context.bytesSent.Load()
+func (blipCtx *Context) GetBytesSent() uint64 {
+	return blipCtx.bytesSent.Load()
 }
 
 // GetBytesReceived returns the number of bytes received since start of the context.
-func (context *Context) GetBytesReceived() uint64 {
-	return context.bytesReceived.Load()
+func (blipCtx *Context) GetBytesReceived() uint64 {
+	return blipCtx.bytesReceived.Load()
+}
+
+// GetCancelCtx returns a cancellation context if it has been set in the ContextOptions.  Otherwise returns non-cancellable context.
+func (blipCtx *Context) GetCancelCtx() context.Context {
+	if blipCtx.cancelCtx != nil {
+		return blipCtx.cancelCtx
+	}
+	return context.TODO()
 }
 
 // DialOptions is used by DialConfig to oepn a BLIP connection.
@@ -133,7 +159,7 @@ type DialOptions struct {
 }
 
 // Opens a BLIP connection to a host given a DialOptions, which allows the caller to specify a custom HTTP client and headers.
-func (context *Context) DialConfig(opts *DialOptions) (*Sender, error) {
+func (blipCtx *Context) DialConfig(opts *DialOptions) (*Sender, error) {
 
 	var (
 		ws                  *websocket.Conn
@@ -150,9 +176,9 @@ func (context *Context) DialConfig(opts *DialOptions) (*Sender, error) {
 
 	// Try to dial with each SupportedSubProtocols
 	// The first one that successfully dials will be the one we'll use, otherwise we'll error.
-	for _, subProtocol := range context.SupportedSubProtocols {
+	for _, subProtocol := range blipCtx.SupportedSubProtocols {
 		wsDialOpts.Subprotocols = []string{subProtocol}
-		ws, _, err = websocket.Dial(gocontext.TODO(), opts.URL, &wsDialOpts)
+		ws, _, err = websocket.Dial(context.TODO(), opts.URL, &wsDialOpts)
 		if err != nil {
 			continue
 		}
@@ -165,7 +191,7 @@ func (context *Context) DialConfig(opts *DialOptions) (*Sender, error) {
 		return nil, err
 	}
 
-	sender := context.start(ws)
+	sender := blipCtx.start(ws)
 	go func() {
 
 		// If the receiveLoop terminates, stop the sender as well
@@ -179,68 +205,78 @@ func (context *Context) DialConfig(opts *DialOptions) (*Sender, error) {
 		if err != nil {
 			if isCloseError(err) {
 				// lower log level for close
-				context.logFrame("BLIP/Websocket receiveLoop exited: %v", err)
+				blipCtx.logFrame("BLIP/Websocket receiveLoop exited: %v", err)
 			} else {
-				context.log("BLIP/Websocket receiveLoop exited with error: %v", err)
+				blipCtx.log("BLIP/Websocket receiveLoop exited with error: %v", err)
 			}
-			if context.OnExitCallback != nil {
-				context.OnExitCallback()
+			if blipCtx.OnExitCallback != nil {
+				blipCtx.OnExitCallback()
 			}
 		}
 	}()
-	context.activeSubProtocol = extractAppProtocolId(selectedSubProtocol)
+	blipCtx.activeSubProtocol = extractAppProtocolId(selectedSubProtocol)
 	return sender, nil
 }
 
 // ActiveSubprotocol returns the currently used WebSocket subprotocol for the Context, set after a successful handshake in
 // the case of a host or a successful Dial in the case of a client.
-func (context *Context) ActiveSubprotocol() string {
-	return context.activeSubProtocol
+func (blipCtx *Context) ActiveSubprotocol() string {
+	return blipCtx.activeSubProtocol
 }
 
-type blipWebsocketServer struct {
-	blipCtx *Context
+type BlipWebsocketServer struct {
+	blipCtx               *Context
+	ctx                   context.Context // Cancellable context to trigger server stop
+	PostHandshakeCallback func(err error)
 }
+
+var _ http.Handler = &BlipWebsocketServer{}
 
 // Creates an HTTP handler that accepts WebSocket connections and dispatches BLIP messages
 // to the Context.
-func (context *Context) WebSocketServer() http.Handler {
-	return &blipWebsocketServer{blipCtx: context}
+func (blipCtx *Context) WebSocketServer() *BlipWebsocketServer {
+	return &BlipWebsocketServer{blipCtx: blipCtx}
 }
 
-func (bwss *blipWebsocketServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (bwss *BlipWebsocketServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ws, err := bwss.handshake(w, r)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	bwss.handle(ws)
 }
 
-func (bwss *blipWebsocketServer) handshake(w http.ResponseWriter, r *http.Request) (*websocket.Conn, error) {
+func (bwss *BlipWebsocketServer) handshake(w http.ResponseWriter, r *http.Request) (conn *websocket.Conn, err error) {
+	if bwss.PostHandshakeCallback != nil {
+		defer func() {
+			bwss.PostHandshakeCallback(err)
+		}()
+	}
+
 	protocolHeader := r.Header.Get("Sec-WebSocket-Protocol")
 	protocol, found := includesProtocol(protocolHeader, bwss.blipCtx.SupportedSubProtocols)
 	if !found {
 		stringSeparatedProtocols := strings.Join(bwss.blipCtx.SupportedSubProtocols, ",")
 		bwss.blipCtx.log("Error: Client doesn't support any of WS protocols: %s only %s", stringSeparatedProtocols, protocolHeader)
-		return nil, fmt.Errorf("I only speak %s protocols", stringSeparatedProtocols)
+		err := fmt.Errorf("I only speak %s protocols", stringSeparatedProtocols)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return nil, err
 	}
 
 	ws, err := websocket.Accept(w, r, &websocket.AcceptOptions{
-		Subprotocols: []string{protocol},
-		// InsecureSkipVerify controls whether Origins are checked or not.
-		InsecureSkipVerify: true,
-		CompressionMode:    websocket.CompressionDisabled,
+		Subprotocols:    []string{protocol},
+		CompressionMode: websocket.CompressionDisabled,
+		OriginPatterns:  bwss.blipCtx.origin,
 	})
 	if err != nil {
-		bwss.blipCtx.FatalErrorHandler(err)
+		return nil, err
 	}
 
 	bwss.blipCtx.activeSubProtocol = extractAppProtocolId(protocol)
 	return ws, nil
 }
 
-func (bwss *blipWebsocketServer) handle(ws *websocket.Conn) {
+func (bwss *BlipWebsocketServer) handle(ws *websocket.Conn) {
 	bwss.blipCtx.log("Start BLIP/Websocket handler")
 	sender := bwss.blipCtx.start(ws)
 	err := sender.receiver.receiveLoop()
@@ -256,19 +292,19 @@ func (bwss *blipWebsocketServer) handle(ws *websocket.Conn) {
 
 //////// LOGGING:
 
-func (context *Context) log(format string, params ...interface{}) {
-	context.Logger(LogGeneral, format, params...)
+func (blipCtx *Context) log(format string, params ...interface{}) {
+	blipCtx.Logger(LogGeneral, format, params...)
 }
 
-func (context *Context) logMessage(format string, params ...interface{}) {
-	if context.LogMessages {
-		context.Logger(LogMessage, format, params...)
+func (blipCtx *Context) logMessage(format string, params ...interface{}) {
+	if blipCtx.LogMessages {
+		blipCtx.Logger(LogMessage, format, params...)
 	}
 }
 
-func (context *Context) logFrame(format string, params ...interface{}) {
-	if context.LogFrames {
-		context.Logger(LogFrame, format, params...)
+func (blipCtx *Context) logFrame(format string, params ...interface{}) {
+	if blipCtx.LogFrames {
+		blipCtx.Logger(LogFrame, format, params...)
 	}
 }
 
@@ -287,12 +323,14 @@ func includesProtocol(header string, protocols []string) (string, bool) {
 
 // isCloseError returns true if the given error is expected on a websocket close (i.e. io.EOF, WS 1000, 1001, 1005, ...)
 func isCloseError(err error) bool {
-	if err == io.EOF {
-		// net package library returned EOF for close (it had no support for close handshakes)
+	if errors.Is(err, io.EOF) {
+		// - x/net/websocket returned EOF for close (it had no support for close handshakes or wrapped errors)
+		// - nhooyr/websocket occasionally wraps EOFs with other errors (e.g. "failed to get reader: failed to read frame header: EOF")
 		return true
 	}
-	// The following status codes are mostly expected for clients closing a connection,
-	// either cleanly (1000, 1001) or abruptly (1005)... Not much cause for concern.
+
+	// The following status codes are expected for clients closing a connection,
+	// either cleanly (1000, 1001) or abruptly (1005)...
 	switch websocket.CloseStatus(err) {
 	case websocket.StatusNormalClosure,
 		websocket.StatusGoingAway,

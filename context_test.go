@@ -11,19 +11,24 @@ licenses/APL2.txt.
 package blip
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net"
+	"net/http"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/coder/websocket"
 	"github.com/stretchr/testify/assert"
-	"nhooyr.io/websocket"
+	"github.com/stretchr/testify/require"
 )
 
 // The application protocol id of the BLIP websocket subprotocol used in go-blip unit tests
 const BlipTestAppProtocolId = "GoBlipUnitTests"
+
+var defaultContextOptions = ContextOptions{ProtocolIds: []string{BlipTestAppProtocolId}}
 
 // This was added in reaction to https://github.com/couchbase/sync_gateway/issues/3268 to either
 // confirm or deny erroneous behavior w.r.t sockets being abruptly closed.  The main question attempted
@@ -41,7 +46,7 @@ const BlipTestAppProtocolId = "GoBlipUnitTests"
 //   - Actual: the echo client blocks indefinitely trying to read the response
 func TestServerAbruptlyCloseConnectionBehavior(t *testing.T) {
 
-	blipContextEchoServer, err := NewContext(BlipTestAppProtocolId)
+	blipContextEchoServer, err := NewContext(defaultContextOptions)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +87,7 @@ func TestServerAbruptlyCloseConnectionBehavior(t *testing.T) {
 
 	// ----------------- Setup Echo Client ----------------------------------------
 
-	blipContextEchoClient, err := NewContext(BlipTestAppProtocolId)
+	blipContextEchoClient, err := NewContext(defaultContextOptions)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -155,7 +160,7 @@ The test does the following steps:
 */
 func TestClientAbruptlyCloseConnectionBehavior(t *testing.T) {
 
-	blipContextEchoServer, err := NewContext(BlipTestAppProtocolId)
+	blipContextEchoServer, err := NewContext(defaultContextOptions)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -213,7 +218,7 @@ func TestClientAbruptlyCloseConnectionBehavior(t *testing.T) {
 
 	// ----------------- Setup Echo Client ----------------------------------------
 
-	blipContextEchoClient, err := NewContext(BlipTestAppProtocolId)
+	blipContextEchoClient, err := NewContext(defaultContextOptions)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -344,7 +349,7 @@ func TestUnsupportedSubProtocol(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.Name, func(t *testing.T) {
-			serverCtx, err := NewContext(testCase.ServerProtocols...)
+			serverCtx, err := NewContext(ContextOptions{ProtocolIds: testCase.ServerProtocols})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -355,7 +360,7 @@ func TestUnsupportedSubProtocol(t *testing.T) {
 			defer listener.Close()
 
 			// Client
-			client, err := NewContext(testCase.ClientProtocol...)
+			client, err := NewContext(ContextOptions{ProtocolIds: testCase.ClientProtocol})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -378,4 +383,300 @@ func TestUnsupportedSubProtocol(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestHandshake(t *testing.T) {
+	serverCtx, err := NewContext(ContextOptions{ProtocolIds: []string{"ServerProtocol"}})
+	require.NoError(t, err)
+	serverCtx.LogMessages = true
+	serverCtx.LogFrames = true
+
+	server := serverCtx.WebSocketServer()
+	wg := sync.WaitGroup{}
+	assertHandlerError(t, server, &wg)
+	mux := http.NewServeMux()
+	mux.Handle("/someBlip", server)
+	listener, err := net.Listen("tcp", ":0")
+	require.NoError(t, err)
+	defer func() {
+		assert.NoError(t, listener.Close())
+	}()
+
+	go func() {
+		// error will happen when listener closes in defer
+		_ = http.Serve(listener, mux)
+	}()
+
+	// Client
+	client, err := NewContext(ContextOptions{ProtocolIds: []string{"ClientProtocol"}})
+	require.NoError(t, err)
+
+	port := listener.Addr().(*net.TCPAddr).Port
+	destUrl := fmt.Sprintf("ws://localhost:%d/someBlip", port)
+
+	_, err = client.Dial(destUrl)
+	require.Error(t, err)
+	assertHandlerError(t, server, &wg)
+}
+
+func TestOrigin(t *testing.T) {
+	protocol := "Protocol1"
+	testCases := []struct {
+		serverOrigin  []string
+		requestOrigin *string
+		hasError      bool
+	}{
+		{
+			serverOrigin:  []string{"example.com"},
+			requestOrigin: StringPtr("https://example.com"),
+		},
+		{
+			serverOrigin:  []string{"foobar.com", "example.com"},
+			requestOrigin: StringPtr("https://example.com"),
+		},
+		{
+			serverOrigin:  []string{"*"},
+			requestOrigin: StringPtr("https://example.com"),
+		},
+		{
+			serverOrigin:  []string{"*"},
+			requestOrigin: StringPtr("ws://example.com"),
+		},
+		{
+			serverOrigin:  []string{"*"},
+			requestOrigin: StringPtr("wss://example.com"),
+		},
+		{
+			serverOrigin:  []string{"example.com"},
+			requestOrigin: StringPtr("wss://example.org"),
+			hasError:      true,
+		},
+		{
+			serverOrigin:  []string{""},
+			requestOrigin: StringPtr("wss://example.org"),
+			hasError:      true,
+		},
+		{
+			serverOrigin:  []string{"example.com"},
+			requestOrigin: nil,
+		},
+	}
+	for _, test := range testCases {
+		t.Run(fmt.Sprintf("%v", test), func(t *testing.T) {
+			listener, err := net.Listen("tcp", ":0")
+			require.NoError(t, err)
+			defer func() {
+				assert.NoError(t, listener.Close())
+			}()
+
+			serverCtx, err := NewContext(ContextOptions{
+				ProtocolIds: []string{protocol},
+				Origin:      test.serverOrigin,
+			})
+			require.NoError(t, err)
+			serverCtx.LogMessages = true
+			serverCtx.LogFrames = true
+
+			server := serverCtx.WebSocketServer()
+			wg := sync.WaitGroup{}
+			if test.hasError {
+				assertHandlerError(t, server, &wg)
+			} else {
+				assertHandlerNoError(t, server, &wg)
+			}
+			mux := http.NewServeMux()
+			mux.Handle("/someBlip", server)
+
+			go func() {
+				// error will happen when listener closes
+				_ = http.Serve(listener, mux)
+			}()
+
+			// Client
+			client, err := NewContext(ContextOptions{ProtocolIds: []string{protocol}})
+			require.NoError(t, err)
+
+			port := listener.Addr().(*net.TCPAddr).Port
+			destUrl := fmt.Sprintf("ws://localhost:%d/someBlip", port)
+			config := DialOptions{
+				URL: destUrl,
+			}
+			if test.requestOrigin != nil {
+				config.HTTPHeader = make(http.Header)
+				config.HTTPHeader.Add("Origin", *test.requestOrigin)
+			}
+			sender, err := client.DialConfig(&config)
+			if test.hasError {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				sender.Close()
+			}
+			require.NoError(t, WaitWithTimeout(&wg, time.Second*5))
+
+			assertHandlerNoError(t, server, &wg)
+
+			// run without origin header
+			config = DialOptions{
+				URL: destUrl,
+			}
+			sender, err = client.DialConfig(&config)
+			require.NoError(t, err)
+			require.NoError(t, WaitWithTimeout(&wg, time.Second*5))
+			sender.Close()
+		})
+	}
+}
+
+// TestServerContextClose tests closing server using cancellable context, ensure that clients are disconnected
+//
+// Test:
+//   - Start two blip contexts: an echo server and an echo client
+//   - The echo server is configured to respond to incoming echo requests and return responses
+//   - The echo client sends echo requests on a loop
+//   - Expected: the echo client should receive some sort of error when the server closes the connection, and should not block
+func TestServerContextClose(t *testing.T) {
+
+	serverCancelCtx, cancelFunc := context.WithCancel(context.Background())
+	contextOptionsWithCancel := ContextOptions{
+		ProtocolIds: []string{BlipTestAppProtocolId},
+		CancelCtx:   serverCancelCtx,
+	}
+	blipContextEchoServer, err := NewContext(contextOptionsWithCancel)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	receivedRequests := sync.WaitGroup{}
+
+	// ----------------- Setup Echo Server that will be closed via cancellation context -------------------------
+
+	// Create a blip profile handler to respond to echo requests
+	dispatchEcho := func(request *Message) {
+		defer receivedRequests.Done()
+		body, err := request.Body()
+		if err != nil {
+			log.Printf("ERROR reading body of %s: %s", request, err)
+			return
+		}
+		if request.Properties["Content-Type"] != "application/octet-stream" {
+			t.Fatalf("Incorrect properties: %#x", request.Properties)
+		}
+		if response := request.Response(); response != nil {
+			response.SetBody(body)
+			response.Properties["Content-Type"] = request.Properties["Content-Type"]
+		}
+	}
+
+	// Blip setup
+	blipContextEchoServer.HandlerForProfile["BLIPTest/EchoData"] = dispatchEcho
+	blipContextEchoServer.LogMessages = true
+	blipContextEchoServer.LogFrames = true
+
+	// Websocket Server
+	server := blipContextEchoServer.WebSocketServer()
+
+	// HTTP Handler wrapping websocket server
+	http.Handle("/TestServerContextClose", server)
+	listener, err := net.Listen("tcp", ":0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	go func() {
+		err := http.Serve(listener, nil)
+		log.Printf("server goroutine closed with error: %v", err)
+	}()
+
+	// ----------------- Setup Echo Client ----------------------------------------
+	blipContextEchoClient, err := NewContext(defaultContextOptions)
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := listener.Addr().(*net.TCPAddr).Port
+	destUrl := fmt.Sprintf("ws://localhost:%d/TestServerContextClose", port)
+	sender, err := blipContextEchoClient.Dial(destUrl)
+	if err != nil {
+		t.Fatalf("Error opening WebSocket: %v", err)
+	}
+
+	var closeWg, delayWg sync.WaitGroup
+
+	// Start a goroutine to send echo request every 100 ms, time out after 30s (if test fails)
+	delayWg.Add(1) // wait for connection and messages to be sent before cancelling server context
+	closeWg.Add(1) // wait for client to disconnect before exiting test
+	go func() {
+		defer closeWg.Done()
+		timeout := time.After(time.Second * 30)
+		ticker := time.NewTicker(time.Millisecond * 50)
+		echoCount := 0
+		for {
+			select {
+			case <-timeout:
+				t.Error("Echo client connection wasn't closed before timeout expired")
+				return
+			case <-ticker.C:
+				{
+					echoCount++
+					// After sending 10 echoes, close delayWg to trigger server-side cancellation
+					log.Printf("Sending echo %v", echoCount)
+					if echoCount == 10 {
+						delayWg.Done()
+					}
+					// Create echo request
+					echoResponseBody := []byte("hello")
+					echoRequest := NewRequest()
+					echoRequest.SetProfile("BLIPTest/EchoData")
+					echoRequest.Properties["Content-Type"] = "application/octet-stream"
+					echoRequest.SetBody(echoResponseBody)
+					receivedRequests.Add(1)
+					sent := sender.Send(echoRequest)
+					require.True(t, sent)
+
+					// Read the echo response if we sent something
+					response := echoRequest.Response()
+					responseBody, err := response.Body()
+					assert.True(t, err == nil)
+					if len(responseBody) == 0 {
+						log.Printf("empty response, connection closed")
+						return
+					}
+					assert.Equal(t, echoResponseBody, responseBody)
+				}
+			}
+		}
+	}()
+
+	// Wait for client to start sending echo messages before stopping server
+	delayWg.Wait()
+
+	// Cancel context on server
+	cancelFunc()
+
+	// Wait for client echo loop to exit due to closed connection before exiting test
+	closeWg.Wait()
+
+}
+
+// assert that the server handshake callback is called with an error.
+func assertHandlerError(t *testing.T, server *BlipWebsocketServer, wg *sync.WaitGroup) {
+	wg.Add(1)
+	server.PostHandshakeCallback = func(err error) {
+		defer wg.Done()
+		require.Error(t, err)
+	}
+}
+
+// assert that the server handshake callback is called without an error.
+func assertHandlerNoError(t *testing.T, server *BlipWebsocketServer, wg *sync.WaitGroup) {
+	wg.Add(1)
+	server.PostHandshakeCallback = func(err error) {
+		defer wg.Done()
+		require.NoError(t, err)
+	}
+}
+
+// StringPtr returns a pointer to the string value passed in
+func StringPtr(s string) *string {
+	return &s
 }

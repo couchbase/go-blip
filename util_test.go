@@ -78,7 +78,7 @@ func serializeMessage(t *testing.T, m *Message) []byte {
 
 // Asserts that two Messages are identical
 func assertEqualMessages(t *testing.T, m, m2 *Message) bool {
-	if !assert.Equal(t, m.flags, m2.flags) || !assert.Equal(t, m.Properties, m2.Properties) {
+	if !assert.Equal(t, m.flags.Load(), m2.flags.Load()) || !assert.Equal(t, m.Properties, m2.Properties) {
 		return false
 	}
 	mb, err := m.Body()

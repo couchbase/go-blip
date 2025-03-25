@@ -12,7 +12,6 @@ package blip
 
 import (
 	"bytes"
-	"context"
 	"encoding/binary"
 	"fmt"
 	"runtime/debug"
@@ -20,7 +19,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"nhooyr.io/websocket"
+	"github.com/coder/websocket"
 )
 
 const checksumLength = 4
@@ -78,7 +77,7 @@ func (r *receiver) receiveLoop() error {
 
 	for {
 		// Receive the next raw WebSocket frame:
-		msgType, frame, err := r.conn.Read(context.TODO())
+		msgType, frame, err := r.conn.Read(r.context.GetCancelCtx())
 		if err != nil {
 			if isCloseError(err) {
 				// lower log level for close
@@ -297,7 +296,7 @@ func (r *receiver) getPendingResponse(requestNumber MessageNumber, flags frameFl
 	msgStream = r.pendingResponses[requestNumber]
 	if msgStream != nil {
 		if msgStream.bytesWritten == 0 {
-			msgStream.flags = flags // set flags based on 1st frame of response
+			msgStream.flags.Store(&flags) // set flags based on 1st frame of response
 		}
 		if complete {
 			delete(r.pendingResponses, requestNumber)

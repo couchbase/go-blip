@@ -54,7 +54,7 @@ func TestMessageStreaming(t *testing.T) {
 				atEnd:   complete,
 			}
 
-			m2 := newIncomingMessage(nil, 1, m.flags)
+			m2 := newIncomingMessage(nil, 1, *m.flags.Load())
 			state, err := m2.addIncomingBytes(frame1, complete)
 			assert.NoError(t, err)
 			assert.Equal(t, state, expectedState)
@@ -97,7 +97,7 @@ func TestMessageEncodingCompressed(t *testing.T) {
 	// goassert.Equals(t, string(serialized), "\x1a\x04\x00ham/rye\x00X-Weather\x00rainy\x00\x1f\x8b\b\x00\x00\tn\x88\x00\xff\f\xca\xd1\t\xc5 \f\x05\xd0U\xee\x04\xce\xf1\x06x\v\xd8z\xd1`\x88ń\x8a\xdb\xd7\xcf\x03\xe7߈\xd5$\x88nR[@\x1c\xaeR\xc4*\xcaX\x868\xe1\x19\x9d3\xe1G\\Y\xb3\xddt\xbc\x9c\xfb\xa8\xe8N_\x00\x00\x00\xff\xffs*\xa1\xa6C\x00\x00\x00")
 	// log.Printf("Encoded compressed as %d bytes", len(serialized))
 
-	m2 := newIncomingMessage(nil, 1, m.flags)
+	m2 := newIncomingMessage(nil, 1, *m.flags.Load())
 	state, err := m2.addIncomingBytes(serialized, true)
 	assert.NoError(t, err)
 	assert.Equal(t, state, dispatchState{true, true})

@@ -16,6 +16,7 @@ import (
 	"io"
 	"strconv"
 	"sync"
+	"sync/atomic"
 )
 
 // A Message's serial number. Outgoing requests are numbered consecutively by the sending peer.
@@ -24,21 +25,31 @@ type MessageNumber uint32
 
 // A BLIP message. It could be a request or response or error, and it could be from me or the peer.
 type Message struct {
-	Outgoing     bool           // Is this a message created locally?
-	Sender       *Sender        // The connection that sent this message.
-	Properties   Properties     // The message's metadata, similar to HTTP headers.
-	body         []byte         // The message body. MIME type is defined by "Content-Type" property
-	bodyReader   *PipeReader    // Non-nil if incoming body is being streamed.
-	bodyWriter   *PipeWriter    // Non-nil if incoming body is being streamed.
-	bodyMutex    sync.Mutex     // Synchronizes access to body properties
-	response     *Message       // The response to this outgoing request [must lock 'cond']
-	inResponseTo *Message       // Outgoing request that this is a response to
-	cond         *sync.Cond     // Used to make Response() method block until response arrives
-	onResponse   func(*Message) // Application's callback to receive response
-	onSent       func()         // Application's callback when message has been sent
-	number       MessageNumber  // The sequence number of the message in the connection.
-	flags        frameFlags     // Message flags as seen on the first frame.
-	inProgress   bool           // True while message is being sent or received
+	Outgoing     bool                       // Is this a message created locally?
+	Sender       *Sender                    // The connection that sent this message.
+	Properties   Properties                 // The message's metadata, similar to HTTP headers.
+	body         []byte                     // The message body. MIME type is defined by "Content-Type" property
+	bodyReader   *PipeReader                // Non-nil if incoming body is being streamed.
+	bodyWriter   *PipeWriter                // Non-nil if incoming body is being streamed.
+	bodyMutex    sync.Mutex                 // Synchronizes access to body properties
+	response     *Message                   // The response to this outgoing request [must lock 'cond']
+	inResponseTo *Message                   // Outgoing request that this is a response to
+	cond         *sync.Cond                 // Used to make Response() method block until response arrives
+	onResponse   func(*Message)             // Application's callback to receive response
+	onSent       func()                     // Application's callback when message has been sent
+	number       MessageNumber              // The sequence number of the message in the connection.
+	flags        atomic.Pointer[frameFlags] // Message flags as seen on the first frame.
+	inProgress   bool                       // True while message is being sent or received
+}
+
+func (message *Message) Close() (err error) {
+	if message.bodyReader != nil {
+		err = message.bodyReader.Close()
+	}
+	if message.bodyWriter != nil {
+		err = message.bodyWriter.Close()
+	}
+	return err
 }
 
 // The error info from a BLIP response, as a Go Error value.
@@ -56,7 +67,7 @@ var ErrConnectionClosed = fmt.Errorf("BLIP connection closed")
 // Returns a string describing the message for debugging purposes.
 // It contains the message number and type. A "!" indicates urgent, and "~" indicates compressed.
 func (message *Message) String() string {
-	return frameString(message.number, message.flags)
+	return frameString(message.number, *message.flags.Load())
 }
 
 func frameString(number MessageNumber, flags frameFlags) string {
@@ -72,12 +83,13 @@ func frameString(number MessageNumber, flags frameFlags) string {
 
 // Creates a new outgoing request.
 func NewRequest() *Message {
-	return &Message{
-		flags:      frameFlags(RequestType),
+	m := &Message{
 		Outgoing:   true,
 		Properties: Properties{},
 		cond:       sync.NewCond(&sync.Mutex{}),
 	}
+	m.flags.Store(ptr(frameFlags(RequestType)))
+	return m
 }
 
 // The order in which a request message was sent.
@@ -88,17 +100,17 @@ func (message *Message) SerialNumber() MessageNumber {
 }
 
 // The type of message: request, response or error
-func (message *Message) Type() MessageType { return MessageType(message.flags.messageType()) }
+func (message *Message) Type() MessageType { return MessageType(message.flags.Load().messageType()) }
 
 // True if the message has Urgent priority.
-func (message *Message) Urgent() bool { return message.flags&kUrgent != 0 }
+func (message *Message) Urgent() bool { return *message.flags.Load()&kUrgent != 0 }
 
 // True if the message doesn't want a reply.
-func (message *Message) NoReply() bool { return message.flags&kNoReply != 0 }
+func (message *Message) NoReply() bool { return *message.flags.Load()&kNoReply != 0 }
 
 // True if the message's body was GZIP-compressed in transit.
 // (This is for informative purposes only; you don't need to unzip it yourself!)
-func (message *Message) Compressed() bool { return message.flags&kCompressed != 0 }
+func (message *Message) Compressed() bool { return *message.flags.Load()&kCompressed != 0 }
 
 // Marks an outgoing message as having high priority. Urgent messages get a higher amount of
 // bandwidth. This is useful for streaming media.
@@ -121,11 +133,13 @@ func (message *Message) SetNoReply(noReply bool) {
 
 func (message *Message) setFlag(flag frameFlags, value bool) {
 	message.assertMutable()
+	flags := *message.flags.Load()
 	if value {
-		message.flags |= flag
+		flags |= flag
 	} else {
-		message.flags &^= flag
+		flags &^= flag
 	}
+	message.flags.Store(&flags)
 }
 
 // Registers a callback that will be called when this message has been written to the socket.
@@ -205,7 +219,8 @@ func (response *Message) SetError(errDomain string, errCode int, message string)
 
 func (response *Message) setError(errDomain string, errCode int, message string) {
 	response.assertIsResponse()
-	response.flags = (response.flags &^ kTypeMask) | frameFlags(ErrorType)
+	newFlags := *response.flags.Load()&^kTypeMask | frameFlags(ErrorType)
+	response.flags.Store(&newFlags)
 	response.Properties = Properties{
 		ErrorDomainProperty: errDomain,
 		ErrorCodeProperty:   fmt.Sprintf("%d", errCode),
@@ -314,7 +329,7 @@ func (message *Message) Clone() *Message {
 func (request *Message) Response() *Message {
 	request.assertIsRequest()
 	request.assertSent()
-	if request.flags&kNoReply != 0 {
+	if *request.flags.Load()&kNoReply != 0 {
 		return nil
 	} else if request.Outgoing {
 		// Outgoing request: block until a response has been set by responseComplete
@@ -334,7 +349,8 @@ func (request *Message) Response() *Message {
 			return request.response
 		}
 		response := request.createResponse()
-		response.flags |= request.flags & kUrgent
+		newFlags := *response.flags.Load() | *request.flags.Load()&kUrgent
+		response.flags.Store(&newFlags)
 		response.Properties = Properties{}
 		request.response = response
 		return response
@@ -347,7 +363,7 @@ func (request *Message) Response() *Message {
 func (request *Message) OnResponse(callback func(*Message)) {
 	request.assertIsRequest()
 	request.assertOutgoing()
-	precondition(request.flags&kNoReply == 0, "OnResponse: Message %s was sent NoReply", request)
+	precondition(*request.flags.Load()&kNoReply == 0, "OnResponse: Message %s was sent NoReply", request)
 
 	request.cond.L.Lock()
 	response := request.response
@@ -368,8 +384,8 @@ func (request *Message) OnResponse(callback func(*Message)) {
 
 // Creates a response Message for this Message.
 func (request *Message) createResponse() *Message {
+	flags := frameFlags(ResponseType) | (*request.flags.Load() & kUrgent)
 	response := &Message{
-		flags:        frameFlags(ResponseType) | (request.flags & kUrgent),
 		number:       request.number,
 		Outgoing:     !request.Outgoing,
 		inResponseTo: request,
@@ -377,9 +393,10 @@ func (request *Message) createResponse() *Message {
 		cond:         sync.NewCond(&sync.Mutex{}),
 	}
 	if !response.Outgoing {
-		response.flags |= kMoreComing
+		flags |= kMoreComing
 		response.bodyReader, response.bodyWriter = NewPipe()
 	}
+	response.flags.Store(&flags)
 	return response
 }
 
@@ -445,7 +462,7 @@ func (m *msgSender) nextFrameToSend(maxSize int) ([]byte, frameFlags) {
 		m.remainingBody = m.remainingBody[blen:]
 	}
 
-	flags := m.flags
+	flags := *m.flags.Load()
 	if len(m.remainingProperties) > 0 || len(m.remainingBody) > 0 {
 		flags |= kMoreComing
 	}
@@ -492,12 +509,12 @@ func newIncomingMessage(sender *Sender, number MessageNumber, flags frameFlags) 
 	m := &msgReceiver{
 		Message: &Message{
 			Sender:     sender,
-			flags:      flags | kMoreComing,
 			number:     number,
 			inProgress: true,
 			cond:       sync.NewCond(&sync.Mutex{}),
 		},
 	}
+	m.flags.Store(ptr(flags | kMoreComing))
 	m.bodyReader, m.bodyWriter = NewPipe()
 	return m
 }
@@ -532,7 +549,7 @@ func (m *msgReceiver) addIncomingBytes(bytes []byte, complete bool) (dispatchSta
 	// Now add to the body:
 	if complete {
 		m.inProgress = false
-		m.flags = m.flags &^ kMoreComing
+		m.flags.Store(ptr(*m.flags.Load() &^ kMoreComing))
 	}
 	if m.body != nil {
 		m.body = append(m.body, bytes...)
@@ -560,7 +577,7 @@ func (m *msgReceiver) cancelIncoming() {
 		_ = m.bodyWriter.CloseWithError(ErrConnectionClosed)
 	}
 	if !m.dispatched && m.inResponseTo != nil {
-		m.setError(BLIPErrorDomain, DisconnectedCode, "Connection closed")
+		m.setError(BLIPErrorDomain, DisconnectedCode, "")
 		m.dispatched = true
 		m.inResponseTo.responseAvailable(m.Message)
 	}
@@ -582,4 +599,8 @@ func (message *Message) assertIsResponse() {
 }
 func (message *Message) assertSent() {
 	precondition(message.number != 0, "Message %s has not been sent", message)
+}
+
+func ptr[T any](v T) *T {
+	return &v
 }

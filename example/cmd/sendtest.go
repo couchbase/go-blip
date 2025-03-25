@@ -59,7 +59,7 @@ func sender() {
 	runtime.GOMAXPROCS(maxProcs)
 	log.Printf("Set GOMAXPROCS to %d", maxProcs)
 
-	context, err := blip.NewContext(BlipExampleAppProtocolId)
+	context, err := blip.NewContext(blip.ContextOptions{ProtocolIds: []string{BlipExampleAppProtocolId}})
 	if err != nil {
 		panic(err)
 	}
@@ -83,14 +83,22 @@ func sender() {
 		if err != nil {
 			log.Fatal(err)
 		}
-		defer pprof.WriteHeapProfile(f)
+		defer func() {
+			err := pprof.WriteHeapProfile(f)
+			if err != nil {
+				log.Fatalf("Error writing heap profile: %s", err)
+			}
+		}()
 	} else if profilingCPU {
 		log.Printf("Writing profile to file cpu.pprof")
 		f, err := os.Create("cpu.pprof")
 		if err != nil {
 			log.Fatal(err)
 		}
-		pprof.StartCPUProfile(f)
+		err = pprof.StartCPUProfile(f)
+		if err != nil {
+			log.Fatalf("Error starting CPU profile: %s", err)
+		}
 		defer pprof.StopCPUProfile()
 	}
 
