@@ -25,22 +25,6 @@ func decrReceiverGoroutines() {
 	goblipExpvar.Add("goroutines_receiver", -1)
 }
 
-func incrAsyncReadGoroutines() {
-	goblipExpvar.Add("goroutines_async_read", 1)
-}
-
-func decrAsyncReadGoroutines() {
-	goblipExpvar.Add("goroutines_async_read", -1)
-}
-
-func incrNextFrameToSendGoroutines() {
-	goblipExpvar.Add("goroutines_next_frame_to_send", 1)
-}
-
-func decrNextFrameToSendGoroutines() {
-	goblipExpvar.Add("goroutines_next_frame_to_send", -1)
-}
-
 func incrParseLoopGoroutines() {
 	goblipExpvar.Add("goroutines_parse_loop", 1)
 }

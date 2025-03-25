@@ -11,8 +11,6 @@ licenses/APL2.txt.
 package blip
 
 import (
-	"bytes"
-	"io"
 	"log"
 	"sync"
 	"testing"
@@ -28,7 +26,7 @@ func TestMessagePushPop(t *testing.T) {
 
 	// Push a non-urgent message into the queue
 	for i := 0; i < 2; i++ {
-		msg := NewRequest()
+		msg := &msgSender{Message: NewRequest()}
 		pushed := mq.push(msg)
 		assert.True(t, pushed)
 		assert.False(t, mq.nextMessageIsUrgent())
@@ -38,7 +36,7 @@ func TestMessagePushPop(t *testing.T) {
 	}
 
 	// Push an urgent message into the queue
-	urgentMsg := NewRequest()
+	urgentMsg := &msgSender{Message: NewRequest()}
 	urgentMsg.SetUrgent(true)
 	pushed := mq.push(urgentMsg)
 	assert.True(t, pushed)
@@ -78,7 +76,7 @@ func TestConcurrentAccess(t *testing.T) {
 
 	// Fill it up to capacity w/ normal messages
 	for i := 0; i < maxSendQueueCount; i++ {
-		msg := NewRequest()
+		msg := &msgSender{Message: NewRequest()}
 		pushed := mq.push(msg)
 		assert.True(t, pushed)
 		assert.False(t, mq.nextMessageIsUrgent())
@@ -88,7 +86,7 @@ func TestConcurrentAccess(t *testing.T) {
 	doneWg.Add(2)
 	pusher := func() {
 		for i := 0; i < 100; i++ {
-			msg := NewRequest()
+			msg := &msgSender{Message: NewRequest()}
 			pushed := mq.push(msg)
 			assert.True(t, pushed)
 		}
@@ -149,15 +147,15 @@ func TestUrgentMessageOrdering(t *testing.T) { // Test passes, but some assertio
 	maxSendQueueCount := 25
 	mq := newMessageQueue(&TestLogContext{silent: true}, maxSendQueueCount)
 
-	// Add normal messages that are "in-progress" since they have a non-nil msg.encoder
+	// Add normal messages that are "in-progress"
 	for i := 0; i < 5; i++ {
-		msg := NewRequest()
+		msg := &msgSender{Message: NewRequest()}
 		pushed := mq.push(msg)
 		assert.True(t, pushed)
 		assert.False(t, mq.nextMessageIsUrgent())
 
-		// set the msg.encoder to something so that the next urgent message will go to the head of the line
-		msg.encoder = io.NopCloser(&bytes.Buffer{})
+		// set inProgress so that the next urgent message will go to the head of the line
+		msg.inProgress = true
 
 	}
 
@@ -165,7 +163,7 @@ func TestUrgentMessageOrdering(t *testing.T) { // Test passes, but some assertio
 	assert.True(t, mq.first().SerialNumber() == MessageNumber(1))
 
 	// Push an urgent message into the queue
-	urgentMsg := NewRequest()
+	urgentMsg := &msgSender{Message: NewRequest()}
 	urgentMsg.SetUrgent(true)
 	pushed := mq.push(urgentMsg)
 	assert.True(t, pushed)
@@ -181,7 +179,7 @@ func TestUrgentMessageOrdering(t *testing.T) { // Test passes, but some assertio
 	mq.pop()
 
 	// T6: [n5] [n4] [n3] [n2] [u6]
-	// Since all the normal messages have had frames sent (faked, via non-nil msg.encoder), then the
+	// Since all the normal messages have had frames sent (faked, via setting inProgress), then the
 	// urgent message should have skipped to the head of the line
 	// assert.True(t, mq.nextMessageIsUrgent())
 	headOfLine := mq.first()
@@ -189,7 +187,7 @@ func TestUrgentMessageOrdering(t *testing.T) { // Test passes, but some assertio
 
 	// Push another urgent message
 	// T7: [n5] [n4] [n3] [u7] [n2] [u6]
-	anotherUrgentMsg := NewRequest()
+	anotherUrgentMsg := &msgSender{Message: NewRequest()}
 	anotherUrgentMsg.SetUrgent(true)
 	pushed = mq.push(anotherUrgentMsg)
 	assert.True(t, pushed)

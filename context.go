@@ -17,24 +17,12 @@ import (
 	"io"
 	"math/rand"
 	"net/http"
-	"runtime/debug"
 	"strings"
 	"sync/atomic"
 	"time"
 
 	"github.com/coder/websocket"
 )
-
-// A function that handles an incoming BLIP request and optionally sends a response.
-// A handler is called on a new goroutine so it can take as long as it needs to.
-// For example, if it has to send a synchronous network request before it can construct
-// a response, that's fine.
-type Handler func(request *Message)
-
-// Utility function that responds to a Message with a 404 error.
-func Unhandled(request *Message) {
-	request.Response().SetError(BLIPErrorDomain, 404, "No handler for BLIP request")
-}
 
 // Defines how incoming requests are dispatched to handler functions.
 type Context struct {
@@ -49,14 +37,14 @@ type Context struct {
 	// Patterns that the Origin header must match (if non-empty)
 	origin []string
 
-	HandlerForProfile   map[string]Handler                                // Handler function for a request Profile
-	DefaultHandler      Handler                                           // Handler for all otherwise unhandled requests
-	FatalErrorHandler   func(error)                                       // Called when connection has a fatal error
-	HandlerPanicHandler func(request, response *Message, err interface{}) // Called when a profile handler panics
-	MaxSendQueueCount   int                                               // Max # of messages being sent at once (if >0)
-	Logger              LogFn                                             // Logging callback; defaults to log.Printf
-	LogMessages         bool                                              // If true, will log about messages
-	LogFrames           bool                                              // If true, will log about frames (very verbose)
+	RequestHandler      AsyncHandler        // Callback that handles incoming requests
+	FatalErrorHandler   FatalErrorHandler   // Called when connection has a fatal error
+	HandlerPanicHandler HandlerPanicHandler // Called when a profile handler panics
+	MaxSendQueueCount   int                 // Max # of messages being sent at once (if >0)
+	MaxDispatchedBytes  int                 // Max total size of incoming requests being dispatched (if >0)
+	Logger              LogFn               // Logging callback; defaults to log.Printf
+	LogMessages         bool                // If true, will log about messages
+	LogFrames           bool                // If true, will log about frames (very verbose)
 
 	OnExitCallback func() // OnExitCallback callback invoked when the underlying connection closes and the receive loop exits.
 
@@ -65,11 +53,20 @@ type Context struct {
 	// An identifier that uniquely defines the context.  NOTE: Random Number Generator not seeded by go-blip.
 	ID string
 
+	HandlerForProfile map[string]Handler // deprecated; use RequestHandler & ByProfileDispatcher
+	DefaultHandler    Handler            // deprecated; use RequestHandler & ByProfileDispatcher
+
 	bytesSent     atomic.Uint64 // Number of bytes sent
 	bytesReceived atomic.Uint64 // Number of bytes received
 
 	cancelCtx context.Context // When cancelled, closes all connections.  Terminates receiveLoop(s), which triggers sender and parseLoop stop
 }
+
+// A function called when a Handler function panics.
+type HandlerPanicHandler func(request, response *Message, err interface{})
+
+// A function called when the connection closes due to a fatal protocol error.
+type FatalErrorHandler func(error)
 
 // Defines a logging interface for use within the blip codebase.  Implemented by Context.
 // Any code that needs to take a Context just for logging purposes should take a Logger instead.
@@ -116,6 +113,13 @@ func NewContextCustomID(id string, opts ContextOptions) (*Context, error) {
 }
 
 func (blipCtx *Context) start(ws *websocket.Conn) *Sender {
+	if blipCtx.RequestHandler == nil {
+		// Compatibility mode: If the app hasn't set a RequestHandler, set one that uses the old
+		// handlerForProfile and defaultHandler.
+		blipCtx.RequestHandler = blipCtx.compatibilityHandler
+	} else if len(blipCtx.HandlerForProfile) > 0 || blipCtx.DefaultHandler != nil {
+		panic("blip.Context cannot have both a RequestHandler and legacy handlerForProfile or defaultHandler")
+	}
 	r := newReceiver(blipCtx, ws)
 	r.sender = newSender(blipCtx, ws, r)
 	r.sender.start()
@@ -252,9 +256,9 @@ func (bwss *BlipWebsocketServer) handshake(w http.ResponseWriter, r *http.Reques
 	protocolHeader := r.Header.Get("Sec-WebSocket-Protocol")
 	protocol, found := includesProtocol(protocolHeader, bwss.blipCtx.SupportedSubProtocols)
 	if !found {
-		stringSeperatedProtocols := strings.Join(bwss.blipCtx.SupportedSubProtocols, ",")
-		bwss.blipCtx.log("Error: Client doesn't support any of WS protocols: %s only %s", stringSeperatedProtocols, protocolHeader)
-		err := fmt.Errorf("I only speak %s protocols", stringSeperatedProtocols)
+		stringSeparatedProtocols := strings.Join(bwss.blipCtx.SupportedSubProtocols, ",")
+		bwss.blipCtx.log("Error: Client doesn't support any of WS protocols: %s only %s", stringSeparatedProtocols, protocolHeader)
+		err := fmt.Errorf("I only speak %s protocols", stringSeparatedProtocols)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return nil, err
 	}
@@ -286,52 +290,6 @@ func (bwss *BlipWebsocketServer) handle(ws *websocket.Conn) {
 	ws.Close(websocket.StatusNormalClosure, "")
 }
 
-//////// DISPATCHING MESSAGES:
-
-func (blipCtx *Context) dispatchRequest(request *Message, sender *Sender) {
-	defer func() {
-		// On return/panic, send the response:
-		response := request.Response()
-		if panicked := recover(); panicked != nil {
-			if blipCtx.HandlerPanicHandler != nil {
-				blipCtx.HandlerPanicHandler(request, response, panicked)
-			} else {
-				stack := debug.Stack()
-				blipCtx.log("PANIC handling BLIP request %v: %v:\n%s", request, panicked, stack)
-				if response != nil {
-					response.SetError(BLIPErrorDomain, 500, fmt.Sprintf("Panic: %v", panicked))
-				}
-			}
-		}
-		if response != nil {
-			sender.send(response)
-		}
-	}()
-
-	blipCtx.logMessage("Incoming BLIP Request: %s", request)
-	handler := blipCtx.HandlerForProfile[request.Properties["Profile"]]
-	if handler == nil {
-		handler = blipCtx.DefaultHandler
-		if handler == nil {
-			handler = Unhandled
-		}
-	}
-	handler(request)
-}
-
-func (blipCtx *Context) dispatchResponse(response *Message) {
-	defer func() {
-		// On return/panic, log a warning:
-		if panicked := recover(); panicked != nil {
-			stack := debug.Stack()
-			blipCtx.log("PANIC handling BLIP response %v: %v:\n%s", response, panicked, stack)
-		}
-	}()
-
-	blipCtx.logMessage("Incoming BLIP Response: %s", response)
-	//panic("UNIMPLEMENTED") //TODO
-}
-
 //////// LOGGING:
 
 func (blipCtx *Context) log(format string, params ...interface{}) {
@@ -349,6 +307,8 @@ func (blipCtx *Context) logFrame(format string, params ...interface{}) {
 		blipCtx.Logger(LogFrame, format, params...)
 	}
 }
+
+//////// UTILITIES:
 
 func includesProtocol(header string, protocols []string) (string, bool) {
 	for _, item := range strings.Split(header, ",") {

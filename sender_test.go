@@ -53,7 +53,8 @@ func TestStopSenderClearsAllMessageQueues(t *testing.T) {
 			"id": fmt.Sprint(i),
 		}
 		msg.Properties = msgProp
-		sender.queue.push(msg)
+		msgSender := &msgSender{Message: msg}
+		sender.queue.push(msgSender)
 	}
 	for i := 10; i < 15; i++ {
 		msg := NewRequest()
@@ -61,7 +62,8 @@ func TestStopSenderClearsAllMessageQueues(t *testing.T) {
 			"id": fmt.Sprint(i),
 		}
 		msg.Properties = msgProp
-		sender.icebox[msgKey{msgNo: MessageNumber(i)}] = msg
+		msgSender := &msgSender{Message: msg}
+		sender.icebox[msgKey{msgNo: MessageNumber(i)}] = msgSender
 	}
 
 	// close sender

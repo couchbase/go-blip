@@ -41,9 +41,8 @@ func TestEchoRoundTrip(t *testing.T) {
 
 	// ----------------- Setup Echo Server  -------------------------
 
-	// Create a blip profile handler to respond to echo requests and then abruptly close the socket
+	// Create a blip profile handler to respond to echo requests
 	dispatchEcho := func(request *Message) {
-		defer receivedRequests.Done()
 		body, err := request.Body()
 		if err != nil {
 			log.Printf("ERROR reading body of %s: %s", request, err)
@@ -61,22 +60,12 @@ func TestEchoRoundTrip(t *testing.T) {
 
 	// Blip setup
 	blipContextEchoServer.HandlerForProfile["BLIPTest/EchoData"] = dispatchEcho
-	blipContextEchoServer.LogMessages = false
-	blipContextEchoServer.LogFrames = false
+	blipContextEchoServer.LogMessages = true
+	blipContextEchoServer.LogFrames = true
 
 	// Websocket Server
-	server := blipContextEchoServer.WebSocketServer()
-
-	// HTTP Handler wrapping websocket server
-	mux := http.NewServeMux()
-	mux.Handle("/blip", server)
-	listener, err := net.Listen("tcp", ":0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	go func() {
-		t.Error(http.Serve(listener, mux))
-	}()
+	listener := startTestListener(t, blipContextEchoServer)
+	defer listener.Close()
 
 	// ----------------- Setup Echo Client ----------------------------------------
 
@@ -84,15 +73,12 @@ func TestEchoRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	port := listener.Addr().(*net.TCPAddr).Port
-	destUrl := fmt.Sprintf("ws://localhost:%d/blip", port)
-	sender, err := blipContextEchoClient.Dial(destUrl)
-	if err != nil {
-		t.Fatalf("Error opening WebSocket: %v", err)
-	}
+
+	sender := startTestClient(t, blipContextEchoClient, listener)
+	defer sender.Close()
 
 	numRequests := 100
-	receivedRequests.Add(numRequests)
+	receivedRequests.Add(numRequests * 50)
 
 	for i := 0; i < numRequests; i++ {
 
@@ -113,12 +99,14 @@ func TestEchoRoundTrip(t *testing.T) {
 				for j := 0; j < 10; j++ {
 					go func(m *Message) {
 						response := m.Response()
+						defer receivedRequests.Done()
 						if response == nil {
 							t.Errorf("unexpected nil message response")
 							return
 						}
 						responseBody, err := response.Body()
-						assert.True(t, err == nil)
+						assert.NoError(t, err)
+						//log.Printf("Got response: %s", responseBody)
 						assert.Equal(t, "hello", string(responseBody))
 					}(echoRequest)
 				}
@@ -129,7 +117,7 @@ func TestEchoRoundTrip(t *testing.T) {
 
 	// Wait until all requests were sent and responded to
 	receivedRequests.Wait()
-
+	log.Printf("*** Closing connections ***")
 }
 
 // TestSenderPing ensures a client configured with a WebsocketPingInterval sends ping frames on an otherwise idle connection.
@@ -140,17 +128,8 @@ func TestSenderPing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	server := serverCtx.WebSocketServer()
-
-	mux := http.NewServeMux()
-	mux.Handle("/blip", server)
-	listener, err := net.Listen("tcp", ":0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	go func() {
-		t.Error(http.Serve(listener, mux))
-	}()
+	listener := startTestListener(t, serverCtx)
+	defer listener.Close()
 
 	// client
 	clientCtx, err := NewContext(defaultContextOptions)
@@ -161,17 +140,11 @@ func TestSenderPing(t *testing.T) {
 	clientCtx.LogFrames = true
 	clientCtx.WebsocketPingInterval = time.Millisecond * 10
 
-	port := listener.Addr().(*net.TCPAddr).Port
-	destUrl := fmt.Sprintf("ws://localhost:%d/blip", port)
-
 	// client hasn't connected yet, stats are uninitialized
 	assert.Equal(t, int64(0), expvarToInt64(goblipExpvar.Get("sender_ping_count")))
 	assert.Equal(t, int64(0), expvarToInt64(goblipExpvar.Get("goroutines_sender_ping")))
 
-	sender, err := clientCtx.Dial(destUrl)
-	if err != nil {
-		t.Fatalf("Error opening WebSocket: %v", err)
-	}
+	sender := startTestClient(t, clientCtx, listener)
 
 	time.Sleep(time.Millisecond * 50)
 

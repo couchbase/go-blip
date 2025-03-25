@@ -14,11 +14,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
-	"log"
 	"runtime/debug"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/coder/websocket"
@@ -42,9 +40,8 @@ type Sender struct {
 	conn                  *websocket.Conn
 	receiver              *receiver
 	queue                 *messageQueue
-	icebox                map[msgKey]*Message
-	curMsg                *Message
-	numRequestsSent       MessageNumber
+	icebox                map[msgKey]*msgSender
+	curMsg                *msgSender
 	requeueLock           sync.Mutex
 	activeGoroutines      int32
 	websocketPingInterval time.Duration
@@ -59,7 +56,7 @@ func newSender(c *Context, conn *websocket.Conn, receiver *receiver) *Sender {
 		conn:                  conn,
 		receiver:              receiver,
 		queue:                 newMessageQueue(c, c.MaxSendQueueCount),
-		icebox:                map[msgKey]*Message{},
+		icebox:                map[msgKey]*msgSender{},
 		websocketPingInterval: c.WebsocketPingInterval,
 		ctx:                   ctx,
 		ctxCancel:             ctxCancel,
@@ -80,7 +77,7 @@ func (sender *Sender) Send(msg *Message) bool {
 // Posts a request or response to be delivered asynchronously.
 // Returns false if the message can't be queued because the Sender has stopped.
 func (sender *Sender) send(msg *Message) bool {
-	if msg.Sender != nil || msg.encoder != nil {
+	if msg.Sender != nil {
 		panic("Message is already enqueued")
 	}
 	msg.Sender = sender
@@ -93,17 +90,12 @@ func (sender *Sender) send(msg *Message) bool {
 	prePushCallback := func(prePushMsg *Message) {
 		if prePushMsg.Type() == RequestType && !prePushMsg.NoReply() {
 			response := prePushMsg.createResponse()
-			atomic.AddInt32(&sender.activeGoroutines, 1)
-			writer := response.asyncRead(func(err error) {
-				// TODO: the error passed into this callback is currently being ignored.  Calling response.SetError() causes: "panic: Message can't be modified"
-				prePushMsg.responseComplete(response)
-				atomic.AddInt32(&sender.activeGoroutines, -1)
-			})
-			sender.receiver.awaitResponse(response, writer)
+			sender.receiver.awaitResponse(response)
 		}
 	}
 
-	return sender.queue.pushWithCallback(msg, prePushCallback)
+	msgSender := &msgSender{Message: msg}
+	return sender.queue.pushWithCallback(msgSender, prePushCallback)
 
 }
 
@@ -149,7 +141,7 @@ func (sender *Sender) start() {
 	go func() {
 		defer func() {
 			if panicked := recover(); panicked != nil {
-				log.Printf("PANIC in BLIP sender: %v\n%s", panicked, debug.Stack())
+				sender.context.log("PANIC in BLIP sender: %v\n%s", panicked, debug.Stack())
 			}
 		}()
 
@@ -200,9 +192,6 @@ func (sender *Sender) start() {
 			err := sender.conn.Write(sender.ctx, websocket.MessageBinary, frameBuffer.Bytes())
 			if err != nil {
 				sender.context.logFrame("Sender error writing framebuffer (len=%d). Error: %v", len(frameBuffer.Bytes()), err)
-				if err := msg.Close(); err != nil {
-					sender.context.logFrame("Sender error closing message. Error: %v", err)
-				}
 			}
 
 			frameBuffer.Reset()
@@ -212,6 +201,8 @@ func (sender *Sender) start() {
 					panic("empty frame should not have moreComing")
 				}
 				sender.requeue(msg, uint64(bytesSent))
+			} else {
+				msg.sent()
 			}
 		}
 		returnCompressor(frameEncoder)
@@ -253,7 +244,7 @@ func (sender *Sender) start() {
 
 //////// FLOW CONTROL:
 
-func (sender *Sender) popNextMessage() *Message {
+func (sender *Sender) popNextMessage() *msgSender {
 	sender.requeueLock.Lock()
 	sender.curMsg = nil
 	sender.requeueLock.Unlock()
@@ -270,11 +261,11 @@ func (sender *Sender) popNextMessage() *Message {
 	return msg
 }
 
-func (sender *Sender) requeue(msg *Message, bytesSent uint64) {
+func (sender *Sender) requeue(msg *msgSender, bytesSent uint64) {
 	sender.requeueLock.Lock()
 	defer sender.requeueLock.Unlock()
-	msg.bytesSent += bytesSent
-	if msg.bytesSent <= msg.bytesAcked+kMaxUnackedBytes {
+	msg.addBytesSent(bytesSent)
+	if !msg.needsAck() {
 		// requeue it so it can send its next frame later
 		sender.queue.push(msg)
 	} else {
@@ -289,14 +280,14 @@ func (sender *Sender) receivedAck(requestNumber MessageNumber, msgType MessageTy
 	sender.requeueLock.Lock()
 	defer sender.requeueLock.Unlock()
 	if msg := sender.queue.find(requestNumber, msgType); msg != nil {
-		msg.bytesAcked = bytesReceived
+		msg.receivedAck(bytesReceived)
 	} else if msg := sender.curMsg; msg != nil && msg.number == requestNumber && msg.Type() == msgType {
-		msg.bytesAcked = bytesReceived
+		msg.receivedAck(bytesReceived)
 	} else {
 		key := msgKey{msgNo: requestNumber, msgType: msgType}
 		if msg := sender.icebox[key]; msg != nil {
-			msg.bytesAcked = bytesReceived
-			if msg.bytesSent <= msg.bytesAcked+kMaxUnackedBytes {
+			msg.receivedAck(bytesReceived)
+			if !msg.needsAck() {
 				sender.context.logFrame("Resuming %v", msg)
 				delete(sender.icebox, key)
 				sender.queue.push(msg)
@@ -316,5 +307,4 @@ func (sender *Sender) sendAck(msgNo MessageNumber, msgType MessageType, bytesRec
 	if err != nil {
 		sender.context.logFrame("Sender error writing ack. Error: %v", err)
 	}
-
 }

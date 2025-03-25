@@ -20,21 +20,26 @@ const kInitialQueueCapacity = 10
 type messageQueue struct {
 	logContext      LogContext
 	maxCount        int
-	queue           []*Message
+	queue           []*msgSender
 	numRequestsSent MessageNumber
 	cond            *sync.Cond
+	/* (instrumentation for perf testing)
+	totalSize        int
+	highestCount     int
+	highestTotalSize int
+	*/
 }
 
 func newMessageQueue(logContext LogContext, maxCount int) *messageQueue {
 	return &messageQueue{
 		logContext: logContext,
-		queue:      make([]*Message, 0, kInitialQueueCapacity),
+		queue:      make([]*msgSender, 0, kInitialQueueCapacity),
 		cond:       sync.NewCond(&sync.Mutex{}),
 		maxCount:   maxCount,
 	}
 }
 
-func (q *messageQueue) _push(msg *Message, new bool) bool { // requires lock
+func (q *messageQueue) _push(msg *msgSender, new bool) bool { // requires lock
 	if !msg.Outgoing {
 		panic("Not an outgoing message")
 	}
@@ -53,7 +58,7 @@ func (q *messageQueue) _push(msg *Message, new bool) bool { // requires lock
 			if q.queue[index].Urgent() {
 				index += 2
 				break
-			} else if new && q.queue[index].encoder == nil {
+			} else if new && !q.queue[index].inProgress {
 				// But have to keep message starts in order
 				index += 1
 				break
@@ -74,20 +79,32 @@ func (q *messageQueue) _push(msg *Message, new bool) bool { // requires lock
 	copy(q.queue[index+1:n+1], q.queue[index:n])
 	q.queue[index] = msg
 
+	/* (instrumentation for perf testing)
+	q.totalSize += len(msg.body)
+	if n+1 > q.highestCount {
+		q.highestCount = n + 1
+		q.logContext.log("messageQueue total size = %d (%d messages)", q.totalSize, n+1)
+	}
+	if q.totalSize > q.highestTotalSize {
+		q.highestTotalSize = q.totalSize
+		q.logContext.log("messageQueue total size = %d (%d messages)", q.totalSize, n+1)
+	}
+	*/
 	if len(q.queue) == 1 {
 		q.cond.Signal() // It's non-empty now, so unblock a waiting pop()
 	}
+
 	return true
 }
 
 // Push an item into the queue
-func (q *messageQueue) push(msg *Message) bool {
+func (q *messageQueue) push(msg *msgSender) bool {
 	return q.pushWithCallback(msg, nil)
 }
 
 // Push an item into the queue, also providing a callback function that will be invoked
 // after the number is assigned to the message, but before pushing into the queue.
-func (q *messageQueue) pushWithCallback(msg *Message, prepushCallback MessageCallback) bool {
+func (q *messageQueue) pushWithCallback(msg *msgSender, prepushCallback messageCallback) bool {
 	q.cond.L.Lock()
 	defer q.cond.L.Unlock()
 
@@ -112,13 +129,13 @@ func (q *messageQueue) pushWithCallback(msg *Message, prepushCallback MessageCal
 	}
 
 	if prepushCallback != nil {
-		prepushCallback(msg)
+		prepushCallback(msg.Message)
 	}
 
 	return q._push(msg, isNew)
 }
 
-func (q *messageQueue) _maybePop(actuallyPop bool) *Message {
+func (q *messageQueue) _maybePop(actuallyPop bool) *msgSender {
 	q.cond.L.Lock()
 	defer q.cond.L.Unlock()
 	for len(q.queue) == 0 && q.queue != nil {
@@ -132,7 +149,9 @@ func (q *messageQueue) _maybePop(actuallyPop bool) *Message {
 	msg := q.queue[0]
 	if actuallyPop {
 		q.queue = q.queue[1:]
-
+		/* (instrumentation for perf testing)
+		q.totalSize -= len(msg.body)
+		*/
 		if len(q.queue) == q.maxCount-1 {
 			q.cond.Signal()
 		}
@@ -140,10 +159,10 @@ func (q *messageQueue) _maybePop(actuallyPop bool) *Message {
 	return msg
 }
 
-func (q *messageQueue) first() *Message { return q._maybePop(false) }
-func (q *messageQueue) pop() *Message   { return q._maybePop(true) }
+func (q *messageQueue) first() *msgSender { return q._maybePop(false) }
+func (q *messageQueue) pop() *msgSender   { return q._maybePop(true) }
 
-func (q *messageQueue) find(msgNo MessageNumber, msgType MessageType) *Message {
+func (q *messageQueue) find(msgNo MessageNumber, msgType MessageType) *msgSender {
 	q.cond.L.Lock()
 	defer q.cond.L.Unlock()
 	for _, message := range q.queue {
@@ -159,14 +178,8 @@ func (q *messageQueue) stop() {
 	q.cond.L.Lock()
 	defer q.cond.L.Unlock()
 
-	// Iterate over messages and call close on every message's readcloser, since it's possible that
-	// a goroutine may be blocked on the reader, thus causing a resource leak.  Added during SG #3268
-	// diagnosis, but does not fix any reproducible issues.
 	for _, message := range q.queue {
-		err := message.Close()
-		if err != nil {
-			q.logContext.logMessage("Warning: messageQueue encountered error closing message while stopping. Error: %v", err)
-		}
+		message.cancelOutgoing()
 	}
 
 	q.queue = nil

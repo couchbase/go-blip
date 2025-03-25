@@ -13,6 +13,7 @@ package blip
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"sort"
@@ -24,53 +25,55 @@ type Properties map[string]string
 // For testing purposes, clients can set this to true to write properties sorted by key
 var SortProperties = false
 
-// Adapter for io.Reader to io.ByteReader
-type byteReader struct {
-	reader io.Reader
-}
+// Implementation-imposed max encoded size of message properties (not part of protocol)
+const maxPropertiesLength = 100 * 1024
 
-func (br byteReader) ReadByte() (byte, error) {
-	var p [1]byte
-	_, err := br.reader.Read(p[:])
-	return p[0], err
-}
-
-// Reads encoded Properties from a stream.
-func (properties *Properties) ReadFrom(reader io.Reader) error {
-	length, err := binary.ReadUvarint(byteReader{reader})
-	if err != nil {
-		return err
+// Reads encoded Properties from a byte array.
+// On success, returns the Properties map and the number of bytes read.
+// If the array doesn't contain the complete properties, returns (nil, 0, nil).
+// On failure, returns nil Properties and an error.
+func ReadProperties(body []byte) (properties Properties, bytesRead int, err error) {
+	length, bytesRead := binary.Uvarint(body)
+	if bytesRead == 0 {
+		// Not enough bytes to read the varint
+		return nil, 0, nil
+	} else if bytesRead < 0 || length > maxPropertiesLength {
+		return nil, bytesRead, errors.New("invalid properties length in BLIP message")
+	} else if bytesRead+int(length) > len(body) {
+		// Incomplete
+		return nil, 0, nil
 	}
+
 	if length == 0 {
-		return nil
+		// Empty properties
+		return Properties{}, bytesRead, nil
 	}
-	body := make([]byte, length)
-	if _, err := io.ReadFull(reader, body); err != nil {
-		return err
-	}
+
+	body = body[bytesRead:]
+	bytesRead += int(length)
 
 	if body[length-1] != 0 {
-		return fmt.Errorf("Invalid properties (not NUL-terminated)")
+		return nil, 0, errors.New("invalid properties (not NUL-terminated)")
 	}
 	eachProp := bytes.Split(body[0:length-1], []byte{0})
 	nProps := len(eachProp) / 2
 	if nProps*2 != len(eachProp) {
-		return fmt.Errorf("Odd number of strings in properties")
+		return nil, bytesRead, errors.New("odd number of strings in properties")
 	}
-	*properties = Properties{}
+	properties = Properties{}
 	for i := 0; i < len(eachProp); i += 2 {
 		key := string(eachProp[i])
 		value := string(eachProp[i+1])
-		if _, exists := (*properties)[key]; exists {
-			return fmt.Errorf("Duplicate property name %q", key)
+		if _, exists := (properties)[key]; exists {
+			return nil, bytesRead, fmt.Errorf("duplicate property name %q", key)
 		}
-		(*properties)[key] = value
+		properties[key] = value
 	}
-	return nil
+	return properties, bytesRead, nil
 }
 
 // Writes Properties to a stream.
-func (properties Properties) WriteTo(writer io.Writer) error {
+func (properties Properties) WriteEncodedTo(writer io.Writer) error {
 	// First convert the property strings into byte arrays, and add up their sizes:
 	var strings propertyList = make(propertyList, 2*len(properties))
 	i := 0
@@ -101,6 +104,13 @@ func (properties Properties) WriteTo(writer io.Writer) error {
 		}
 	}
 	return nil
+}
+
+// Writes Properties to a byte array.
+func (properties Properties) Encode() []byte {
+	var out bytes.Buffer
+	_ = properties.WriteEncodedTo(&out)
+	return out.Bytes()
 }
 
 // Properties stored as alternating keys / values
