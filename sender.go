@@ -121,6 +121,8 @@ func (sender *Sender) Stop() {
 // closeIceBox will close all messages set in iceBox map to clear any remaining goroutines associated with
 // those messages, see CBG-4572
 func (sender *Sender) closeIceBox() {
+	sender.requeueLock.Lock()
+	defer sender.requeueLock.Unlock()
 	for _, msg := range sender.icebox {
 		if err := msg.Close(); err != nil {
 			sender.context.logFrame("Warning: Sender encountered error closing messages in icebox. Error: %v", err)
