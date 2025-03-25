@@ -309,13 +309,14 @@ func (message *Message) Clone() *Message {
 
 	message.bodyMutex.Lock()
 	defer message.bodyMutex.Unlock()
-	return &Message{
+	m := &Message{
 		Outgoing:   message.Outgoing,
 		Properties: message.Properties,
 		body:       message.body,
 		number:     message.number,
-		flags:      message.flags,
 	}
+	m.flags.Store(message.flags.Load())
+	return m
 }
 
 //////// RESPONSE HANDLING:

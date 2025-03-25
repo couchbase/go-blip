@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Starts a WebSocket server on the Context, returning its net.Listener.
@@ -87,15 +88,10 @@ func assertEqualMessages(t *testing.T, m, m2 *Message) bool {
 
 }
 
-// Asserts that `response` contains a BLIP error with the given domain and code.
-func assertBLIPError(t *testing.T, response *Message, domain string, code int) bool {
+// requireBLIPError requires that `response` contains a BLIP error with the given domain and code.
+func requireBLIPError(t *testing.T, response *Message, domain string, code int) {
 	responseError := response.Error()
-	if assert.NotNil(t, responseError, "Expected a BLIP error") {
-		if responseError.Domain == domain && responseError.Code == code {
-			return true
-		}
-		assert.Fail(t, "Unexpected BLIP error", "Got %v: expected %v",
-			responseError, &ErrorResponse{domain, code, ""})
-	}
-	return false
+	require.Errorf(t, responseError, "Expected a BLIP error")
+	require.Equal(t, domain, responseError.Domain)
+	require.Equal(t, code, responseError.Code)
 }

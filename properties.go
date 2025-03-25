@@ -13,6 +13,7 @@ package blip
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"sort"
@@ -35,10 +36,9 @@ func ReadProperties(body []byte) (properties Properties, bytesRead int, err erro
 	length, bytesRead := binary.Uvarint(body)
 	if bytesRead == 0 {
 		// Not enough bytes to read the varint
-		return
+		return nil, 0, nil
 	} else if bytesRead < 0 || length > maxPropertiesLength {
-		err = fmt.Errorf("invalid properties length in BLIP message")
-		return
+		return nil, bytesRead, errors.New("invalid properties length in BLIP message")
 	} else if bytesRead+int(length) > len(body) {
 		// Incomplete
 		return nil, 0, nil
@@ -53,14 +53,12 @@ func ReadProperties(body []byte) (properties Properties, bytesRead int, err erro
 	bytesRead += int(length)
 
 	if body[length-1] != 0 {
-		err = fmt.Errorf("invalid properties (not NUL-terminated)")
-		return
+		return nil, 0, errors.New("invalid properties (not NUL-terminated)")
 	}
 	eachProp := bytes.Split(body[0:length-1], []byte{0})
 	nProps := len(eachProp) / 2
 	if nProps*2 != len(eachProp) {
-		err = fmt.Errorf("odd number of strings in properties")
-		return
+		return nil, bytesRead, errors.New("odd number of strings in properties")
 	}
 	properties = Properties{}
 	for i := 0; i < len(eachProp); i += 2 {
@@ -71,7 +69,7 @@ func ReadProperties(body []byte) (properties Properties, bytesRead int, err erro
 		}
 		properties[key] = value
 	}
-	return
+	return properties, bytesRead, nil
 }
 
 // Writes Properties to a stream.

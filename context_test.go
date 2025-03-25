@@ -113,7 +113,7 @@ func TestServerAbruptlyCloseConnectionBehavior(t *testing.T) {
 
 	// Read the echo response
 	response := echoRequest.Response() // <--- SG #3268 was causing this to block indefinitely
-	assertBLIPError(t, response, BLIPErrorDomain, DisconnectedCode)
+	requireBLIPError(t, response, BLIPErrorDomain, DisconnectedCode)
 }
 
 /*
@@ -183,7 +183,7 @@ func TestClientAbruptlyCloseConnectionBehavior(t *testing.T) {
 		sent := clientSender.Send(echoAmplifyRequest)
 		assert.True(t, sent)
 		echoAmplifyResponse := echoAmplifyRequest.Response() // <--- SG #3268 was causing this to block indefinitely
-		assertBLIPError(t, echoAmplifyResponse, BLIPErrorDomain, DisconnectedCode)
+		requireBLIPError(t, echoAmplifyResponse, BLIPErrorDomain, DisconnectedCode)
 	}
 
 	// Create a blip profile handler to respond to echo requests and then abruptly close the socket

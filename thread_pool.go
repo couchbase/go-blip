@@ -44,7 +44,7 @@ func (p *ThreadPool) Start() {
 			select {
 			case fn := <-ch:
 				if fn != nil {
-					p.perform(fn)
+					p.perform(i, fn)
 				} else {
 					return
 				}
@@ -106,13 +106,13 @@ func (p *ThreadPool) WrapAsyncHandler(handler AsyncHandler) AsyncHandler {
 	}
 }
 
-func (p *ThreadPool) perform(fn func()) {
+func (p *ThreadPool) perform(i int, fn func()) {
 	defer func() {
 		if panicked := recover(); panicked != nil {
 			if p.PanicHandler != nil {
 				p.PanicHandler(panicked)
 			} else {
-				log.Printf("PANIC in ThreadPool function: %v\n%s", panicked, debug.Stack())
+				log.Printf("PANIC in ThreadPool[%d] function: %v\n%s", i, panicked, debug.Stack())
 			}
 		}
 	}()
