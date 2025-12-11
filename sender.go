@@ -50,6 +50,7 @@ type Sender struct {
 	websocketPingInterval time.Duration
 	ctx                   context.Context
 	ctxCancel             context.CancelFunc
+	rtt                   atomic.Pointer[time.Duration] // round-trip time of last ping/pong
 }
 
 func newSender(c *Context, conn *websocket.Conn, receiver *receiver) *Sender {
@@ -228,6 +229,7 @@ func (sender *Sender) start() {
 			for {
 				select {
 				case <-tick.C:
+					start := time.Now()
 					if err := sender.conn.Ping(sender.ctx); err != nil {
 						if err == context.Canceled {
 							return
@@ -240,7 +242,8 @@ func (sender *Sender) start() {
 							return
 						}
 					}
-					sender.context.logFrame("Sender sent ping frame")
+					sender.rtt.Store(ptr(time.Since(start)))
+					sender.context.logFrame("Sender sent ping frame and got pong")
 					incrSenderPingCount()
 				case <-sender.ctx.Done():
 					return
