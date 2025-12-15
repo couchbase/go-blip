@@ -50,7 +50,6 @@ type Sender struct {
 	websocketPingInterval time.Duration
 	ctx                   context.Context
 	ctxCancel             context.CancelFunc
-	rtt                   atomic.Pointer[time.Duration] // round-trip time of last ping/pong
 }
 
 func newSender(c *Context, conn *websocket.Conn, receiver *receiver) *Sender {
@@ -219,32 +218,39 @@ func (sender *Sender) start() {
 		sender.context.logFrame("Sender stopped")
 	}()
 
+	tickFn := func(now time.Time) {
+		if err := sender.conn.Ping(sender.ctx); err != nil {
+			if err == context.Canceled {
+				return
+			}
+			errMsg := err.Error()
+			sender.context.logFrame("Sender error sending ping frame. Error: %s", errMsg)
+			if strings.Contains(errMsg, "use of closed network connection") ||
+				strings.Contains(errMsg, "broken pipe") ||
+				strings.Contains(errMsg, "connection reset") {
+				return
+			}
+		}
+		latency := time.Since(now)
+		// Since Ping blocks until Pong - we can use it to measure RTT
+		sender.context.RTTLatency.Store(&latency)
+		sender.context.logFrame("Sender sent ping frame and got pong")
+		incrSenderPingCount()
+	}
+
 	if sender.websocketPingInterval > 0 {
 		go func() {
 			incrSenderPingGoroutines()
 			defer decrSenderPingGoroutines()
 
+			tickFn(time.Now()) // Send an initial ping immediately to init RTT measurement
+
 			tick := time.NewTicker(sender.websocketPingInterval)
 			defer tick.Stop()
 			for {
 				select {
-				case <-tick.C:
-					start := time.Now()
-					if err := sender.conn.Ping(sender.ctx); err != nil {
-						if err == context.Canceled {
-							return
-						}
-						errMsg := err.Error()
-						sender.context.logFrame("Sender error sending ping frame. Error: %s", errMsg)
-						if strings.Contains(errMsg, "use of closed network connection") ||
-							strings.Contains(errMsg, "broken pipe") ||
-							strings.Contains(errMsg, "connection reset") {
-							return
-						}
-					}
-					sender.rtt.Store(ptr(time.Since(start)))
-					sender.context.logFrame("Sender sent ping frame and got pong")
-					incrSenderPingCount()
+				case now := <-tick.C:
+					tickFn(now)
 				case <-sender.ctx.Done():
 					return
 				}

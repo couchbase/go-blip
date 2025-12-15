@@ -68,6 +68,8 @@ type Context struct {
 	bytesSent     atomic.Uint64 // Number of bytes sent
 	bytesReceived atomic.Uint64 // Number of bytes received
 
+	RTTLatency *atomic.Pointer[time.Duration] // Latest measured RTT latency from ping/pong
+
 	cancelCtx context.Context // When cancelled, closes all connections.  Terminates receiveLoop(s), which triggers sender and parseLoop stop
 }
 
@@ -112,6 +114,7 @@ func NewContextCustomID(id string, opts ContextOptions) (*Context, error) {
 		SupportedSubProtocols: formatWebSocketSubProtocols(opts.ProtocolIds...),
 		origin:                opts.Origin,
 		cancelCtx:             opts.CancelCtx,
+		RTTLatency:            &atomic.Pointer[time.Duration]{},
 	}, nil
 }
 
