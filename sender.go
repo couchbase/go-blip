@@ -131,12 +131,12 @@ func (sender *Sender) Stop() {
 func (sender *Sender) closeIceBox() {
 	sender.requeueLock.Lock()
 	defer sender.requeueLock.Unlock()
-	for key, msg := range sender.icebox {
+	for _, msg := range sender.icebox {
 		if err := msg.Close(); err != nil {
 			sender.context.logFrame("Warning: Sender encountered error closing messages in icebox. Error: %v", err)
 		}
-		delete(sender.icebox, key)
 	}
+	sender.icebox = nil
 }
 
 func (sender *Sender) Close() {
@@ -273,6 +273,10 @@ func (sender *Sender) popNextMessage() *Message {
 func (sender *Sender) requeue(msg *Message, bytesSent uint64) {
 	sender.requeueLock.Lock()
 	defer sender.requeueLock.Unlock()
+	// if icebox has been closed, return early to avoid requeuing messages to a closed sender
+	if sender.icebox == nil {
+		return
+	}
 	msg.bytesSent += bytesSent
 	if msg.bytesSent <= msg.bytesAcked+kMaxUnackedBytes {
 		// requeue it so it can send its next frame later
