@@ -136,7 +136,6 @@ func (sender *Sender) closeIceBox() {
 			sender.context.logFrame("Warning: Sender encountered error closing messages in icebox. Error: %v", err)
 		}
 	}
-	sender.icebox = nil
 }
 
 func (sender *Sender) Close() {
