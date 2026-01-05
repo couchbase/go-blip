@@ -131,10 +131,11 @@ func (sender *Sender) Stop() {
 func (sender *Sender) closeIceBox() {
 	sender.requeueLock.Lock()
 	defer sender.requeueLock.Unlock()
-	for _, msg := range sender.icebox {
+	for key, msg := range sender.icebox {
 		if err := msg.Close(); err != nil {
 			sender.context.logFrame("Warning: Sender encountered error closing messages in icebox. Error: %v", err)
 		}
+		delete(sender.icebox, key)
 	}
 }
 
