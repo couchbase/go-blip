@@ -72,3 +72,45 @@ func TestStopSenderClearsAllMessageQueues(t *testing.T) {
 	assert.Equal(t, 0, len(sender.icebox))
 
 }
+
+func TestSenderIceboxPanicAfterClosure(t *testing.T) {
+
+	blipContextEchoServer, err := NewContext(defaultContextOptions)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	server := blipContextEchoServer.WebSocketServer()
+	http.Handle("/TestSenderIceboxPanicAfterClosure", server)
+	listener, err := net.Listen("tcp", ":0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() {
+		t.Error(http.Serve(listener, nil))
+	}()
+
+	blipContextEchoClient, err := NewContext(defaultContextOptions)
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := listener.Addr().(*net.TCPAddr).Port
+	destUrl := fmt.Sprintf("ws://localhost:%d/TestSenderIceboxPanicAfterClosure", port)
+	sender, err := blipContextEchoClient.Dial(destUrl)
+	if err != nil {
+		t.Fatalf("Error opening WebSocket: %v", err)
+	}
+
+	// close sender
+	sender.Close()
+
+	// try requeueing messages after closure
+	for i := 1; i < 20; i++ {
+		msg := NewRequest()
+		msgProp := Properties{
+			"id": fmt.Sprint(i),
+		}
+		msg.Properties = msgProp
+		sender.requeue(msg, 500000)
+	}
+}
