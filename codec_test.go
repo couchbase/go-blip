@@ -29,7 +29,7 @@ func init() {
 	randomData = make([]byte, 65536)
 	var b byte
 	var step byte = 1
-	for i, _ := range randomData {
+	for i := range randomData {
 		if rando.Intn(10) == 0 {
 			b = byte(rando.Intn(256))
 			step = byte(rando.Intn(4))

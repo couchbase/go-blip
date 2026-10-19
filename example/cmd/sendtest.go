@@ -143,7 +143,7 @@ func sender() {
 	log.Printf("Closing...")
 	sender.Close()
 
-	elapsed := float64(time.Now().Sub(startTime)) / float64(time.Second)
+	elapsed := float64(time.Since(startTime)) / float64(time.Second)
 	log.Printf("Sent & received %d Mbytes in %.3f sec (%f megabytes/sec)",
 		totalBytesSent/1000000, elapsed, float64(totalBytesSent)/elapsed/1.0e6)
 }

@@ -72,7 +72,7 @@ func (c *compressor) write(data []byte) (n int, err error) {
 	if c.enabled {
 		n, err = c.z.Write(data)
 		if err == nil {
-			c.z.Flush()
+			_ = c.z.Flush()
 			// Remove the '00 00 FF FF' trailer from the deflated block:
 			// if !bytes.HasSuffix(c.dst.Bytes(), []byte(deflateTrailer)) {
 			//     panic(fmt.Sprintf("Unexpected end of compressed data: %x", c.dst.Bytes()))
@@ -204,7 +204,7 @@ func getCompressor(writer *bytes.Buffer) *compressor {
 
 // Closes a compressor and returns it to the pool:
 func returnCompressor(c *compressor) {
-	c.z.Close()
+	_ = c.z.Close()
 	compressorCache.Put(c)
 }
 
@@ -220,6 +220,6 @@ func getDecompressor(logContext LogContext) *decompressor {
 
 // Closes a decompressor and returns it to the pool:
 func returnDecompressor(d *decompressor) {
-	d.z.Close()
+	_ = d.z.Close()
 	decompressorCache.Put(d)
 }

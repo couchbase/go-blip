@@ -44,7 +44,6 @@ type Sender struct {
 	queue                 *messageQueue
 	icebox                map[msgKey]*Message
 	curMsg                *Message
-	numRequestsSent       MessageNumber
 	requeueLock           sync.Mutex
 	activeGoroutines      int32
 	websocketPingInterval time.Duration
@@ -141,7 +140,7 @@ func (sender *Sender) closeIceBox() {
 
 func (sender *Sender) Close() {
 	sender.Stop()
-	sender.conn.Close(websocket.StatusNormalClosure, "")
+	_ = sender.conn.Close(websocket.StatusNormalClosure, "")
 }
 
 // Spawns a goroutine that will write frames to the connection until Stop() is called.

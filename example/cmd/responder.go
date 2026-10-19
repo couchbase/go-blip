@@ -12,7 +12,6 @@ package cmd
 
 import (
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"runtime"
@@ -85,32 +84,5 @@ func dispatchEcho(request *blip.Message) {
 	if response := request.Response(); response != nil {
 		response.SetBody(body)
 		response.Properties["Content-Type"] = request.Properties["Content-Type"]
-	}
-}
-
-func httpEcho(r http.ResponseWriter, request *http.Request) {
-	body, err := io.ReadAll(request.Body)
-	log.Printf("Got HTTP %s %s (%d bytes)", request.Method, request.RequestURI, len(body))
-	if err != nil {
-		log.Printf("ERROR reading body of %+v: %s", request, err)
-		return
-	}
-	if len(body) == 0 {
-		panic("Empty body!")
-	}
-	for i, b := range body {
-		if b != byte(i%256) {
-			panic(fmt.Sprintf("Incorrect body: %x", body))
-		}
-	}
-	if request.Header.Get("Content-Type") != "application/octet-stream" {
-		panic(fmt.Sprintf("Incorrect headers: %#v", request.Header))
-	}
-
-	r.Header().Add("Content-Type", "application/octet-stream")
-	r.WriteHeader(201)
-	_, err = r.Write(body)
-	if err != nil {
-		log.Printf("ERROR writing response: %s", err)
 	}
 }

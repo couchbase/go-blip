@@ -133,7 +133,7 @@ func (r *receiver) stop() {
 
 	r.closePendingResponses()
 
-	r.conn.Close(websocket.StatusNormalClosure, "")
+	_ = r.conn.Close(websocket.StatusNormalClosure, "")
 
 	waitForZeroActiveGoroutines(r.context, &r.activeGoroutines)
 }
@@ -193,7 +193,7 @@ func (r *receiver) handleIncomingFrame(frame []byte) error {
 		if len(frame) < checksumLength {
 			return fmt.Errorf("Illegally short frame")
 		}
-		checksumSlice := bufferedFrame[len(bufferedFrame)-checksumLength : len(bufferedFrame)]
+		checksumSlice := bufferedFrame[len(bufferedFrame)-checksumLength:]
 		checksum := binary.BigEndian.Uint32(checksumSlice)
 		r.frameBuffer.Truncate(r.frameBuffer.Len() - checksumLength)
 
