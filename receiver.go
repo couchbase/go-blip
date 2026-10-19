@@ -135,7 +135,7 @@ func (r *receiver) stop() {
 
 	r.conn.Close(websocket.StatusNormalClosure, "")
 
-	waitForZeroActiveGoroutines(r.context, &r.activeGoroutines)
+	waitForZeroActiveGoroutines(r.context, "receiver", &r.activeGoroutines)
 }
 
 func (r *receiver) closePendingResponses() {

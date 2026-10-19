@@ -123,7 +123,7 @@ func (sender *Sender) Stop() {
 		sender.receiver.stop()
 	}
 
-	waitForZeroActiveGoroutines(sender.context, &sender.activeGoroutines)
+	waitForZeroActiveGoroutines(sender.context, "sender", &sender.activeGoroutines)
 }
 
 // closeIceBox will close all messages set in iceBox map to clear any remaining goroutines associated with

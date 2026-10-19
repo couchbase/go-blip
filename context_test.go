@@ -17,6 +17,7 @@ import (
 	"net"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -752,4 +753,38 @@ func WaitWithTimeout(wg *sync.WaitGroup, timeout time.Duration) error {
 // StringPtr returns a pointer to the string value passed in
 func StringPtr(s string) *string {
 	return &s
+}
+
+// TestCloseWaitsForOnExitCallback checks that Sender.Close on a dialed connection returns only after OnExitCallback has
+// returned, so a caller that replaces the connection never sees a callback from the old one.
+func TestCloseWaitsForOnExitCallback(t *testing.T) {
+	serverCtx, err := NewContext(defaultContextOptions)
+	require.NoError(t, err)
+	listener, err := net.Listen("tcp", ":0")
+	require.NoError(t, err)
+	defer listener.Close()
+	mux := http.NewServeMux()
+	mux.Handle("/TestCloseWaitsForOnExitCallback", serverCtx.WebSocketServer())
+	go func() { _ = http.Serve(listener, mux) }()
+
+	clientCtx, err := NewContext(defaultContextOptions)
+	require.NoError(t, err)
+	callbackStarted := make(chan struct{})
+	var callbackDone atomic.Bool
+	clientCtx.OnExitCallback = func() {
+		close(callbackStarted)
+		time.Sleep(200 * time.Millisecond)
+		callbackDone.Store(true)
+	}
+	port := listener.Addr().(*net.TCPAddr).Port
+	sender, err := clientCtx.Dial(fmt.Sprintf("ws://localhost:%d/TestCloseWaitsForOnExitCallback", port))
+	require.NoError(t, err)
+
+	sender.Close()
+	select {
+	case <-callbackStarted:
+	default:
+		require.FailNow(t, "expected OnExitCallback to run during Close")
+	}
+	assert.True(t, callbackDone.Load(), "expected Close to wait for OnExitCallback to return")
 }

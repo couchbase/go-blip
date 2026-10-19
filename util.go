@@ -16,15 +16,16 @@ import (
 )
 
 // waitForZeroActiveGoroutines blocks until either the number of activeGoroutines has reached zero, or we give up waiting.
-func waitForZeroActiveGoroutines(logCtx *Context, activeGoroutines *int32) {
-	timeout := time.After(time.Second * 5)
+func waitForZeroActiveGoroutines(logCtx *Context, name string, activeGoroutines *int32) {
+	const timeoutDuration = 5 * time.Second
+	timeout := time.After(timeoutDuration)
 	ticker := time.NewTicker(time.Millisecond * 25)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-timeout:
-			logCtx.log("timed out waiting for goroutines to finish")
+			logCtx.log("timed out after %v waiting for %d %s goroutines to finish", timeoutDuration, atomic.LoadInt32(activeGoroutines), name)
 			return // timed out
 		case <-ticker.C:
 			if atomic.LoadInt32(activeGoroutines) > 0 {
