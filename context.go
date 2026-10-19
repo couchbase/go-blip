@@ -222,7 +222,6 @@ func (blipCtx *Context) ActiveSubprotocol() string {
 
 type BlipWebsocketServer struct {
 	blipCtx               *Context
-	ctx                   context.Context // Cancellable context to trigger server stop
 	PostHandshakeCallback func(err error)
 }
 
@@ -283,7 +282,7 @@ func (bwss *BlipWebsocketServer) handle(ws *websocket.Conn) {
 			bwss.blipCtx.FatalErrorHandler(err)
 		}
 	}
-	ws.Close(websocket.StatusNormalClosure, "")
+	_ = ws.Close(websocket.StatusNormalClosure, "")
 }
 
 //////// DISPATCHING MESSAGES:
@@ -317,19 +316,6 @@ func (blipCtx *Context) dispatchRequest(request *Message, sender *Sender) {
 		}
 	}
 	handler(request)
-}
-
-func (blipCtx *Context) dispatchResponse(response *Message) {
-	defer func() {
-		// On return/panic, log a warning:
-		if panicked := recover(); panicked != nil {
-			stack := debug.Stack()
-			blipCtx.log("PANIC handling BLIP response %v: %v:\n%s", response, panicked, stack)
-		}
-	}()
-
-	blipCtx.logMessage("Incoming BLIP Response: %s", response)
-	//panic("UNIMPLEMENTED") //TODO
 }
 
 //////// LOGGING:

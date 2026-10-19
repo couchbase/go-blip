@@ -35,8 +35,8 @@ func (br byteReader) ReadByte() (byte, error) {
 	return p[0], err
 }
 
-// Reads encoded Properties from a stream.
-func (properties *Properties) ReadFrom(reader io.Reader) error {
+// Decode reads encoded Properties from a stream.
+func (properties *Properties) Decode(reader io.Reader) error {
 	length, err := binary.ReadUvarint(byteReader{reader})
 	if err != nil {
 		return err
@@ -69,10 +69,10 @@ func (properties *Properties) ReadFrom(reader io.Reader) error {
 	return nil
 }
 
-// Writes Properties to a stream.
-func (properties Properties) WriteTo(writer io.Writer) error {
+// Encode writes Properties to a stream.
+func (properties Properties) Encode(writer io.Writer) error {
 	// First convert the property strings into byte arrays, and add up their sizes:
-	var strings propertyList = make(propertyList, 2*len(properties))
+	strings := make(propertyList, 2*len(properties))
 	i := 0
 	size := 0
 	for key, value := range properties {

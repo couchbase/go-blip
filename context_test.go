@@ -632,7 +632,7 @@ func TestServerContextClose(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer listener.Close()
+	defer func() { _ = listener.Close() }()
 	go func() {
 		err := http.Serve(listener, nil)
 		log.Printf("server goroutine closed with error: %v", err)

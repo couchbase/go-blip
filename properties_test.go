@@ -24,14 +24,14 @@ func init() {
 func TestReadWriteProperties(t *testing.T) {
 	p := Properties{"Content-Type": "application/octet-stream", "Foo": "Bar"}
 	var writer bytes.Buffer
-	err := p.WriteTo(&writer)
+	err := p.Encode(&writer)
 	assert.Equal(t, nil, err)
 	serialized := writer.Bytes()
 	assert.Equal(t, "\x2EContent-Type\x00application/octet-stream\x00Foo\x00Bar\x00", string(serialized))
 
 	var p2 Properties
 	reader := bytes.NewReader(serialized)
-	err = p2.ReadFrom(reader)
+	err = p2.Decode(reader)
 	assert.Equal(t, nil, err)
 	assert.Equal(t, p, p2)
 }
@@ -39,14 +39,14 @@ func TestReadWriteProperties(t *testing.T) {
 func TestReadWriteEmptyProperties(t *testing.T) {
 	var p Properties
 	var writer bytes.Buffer
-	err := p.WriteTo(&writer)
+	err := p.Encode(&writer)
 	assert.Equal(t, nil, err)
 	serialized := writer.Bytes()
 	assert.Equal(t, "\x00", string(serialized))
 
 	var p2 Properties
 	reader := bytes.NewReader(serialized)
-	err = p2.ReadFrom(reader)
+	err = p2.Decode(reader)
 	assert.Equal(t, nil, err)
 	assert.Equal(t, p, p2)
 }
@@ -66,7 +66,7 @@ func TestReadBadProperties(t *testing.T) {
 	var p2 Properties
 	for i, pair := range bad {
 		reader := bytes.NewReader([]byte(pair[0]))
-		err := p2.ReadFrom(reader)
+		err := p2.Decode(reader)
 		var errStr string
 		if err == nil {
 			if reader.Len() != 0 {

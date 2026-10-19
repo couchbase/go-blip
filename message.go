@@ -38,7 +38,6 @@ type Message struct {
 	reader       io.ReadCloser // Stream that an incoming message is being read from
 	encoder      io.ReadCloser // Stream that an outgoing message is being written to
 	readingBody  bool          // True if reader stream has been accessed by client already
-	complete     bool          // Has this message been completely received?
 	response     *Message      // Response to this message, if it's a request
 	inResponseTo *Message      // Message this is a response to
 	cond         *sync.Cond    // Used to make Response() method block until response arrives
@@ -150,7 +149,7 @@ func (m *Message) readProperties() error {
 		panic("Message has no reader")
 	}
 	m.Properties = Properties{}
-	return m.Properties.ReadFrom(m.reader)
+	return m.Properties.Decode(m.reader)
 }
 
 // The value of the "Profile" property which is used to identify a request's purpose.
@@ -342,8 +341,8 @@ func (request *Message) responseComplete(response *Message) {
 
 //////// I/O:
 
-func (m *Message) WriteTo(writer io.Writer) error {
-	if err := m.Properties.WriteTo(writer); err != nil {
+func (m *Message) Encode(writer io.Writer) error {
+	if err := m.Properties.Encode(writer); err != nil {
 		return err
 	}
 	var err error
@@ -353,8 +352,8 @@ func (m *Message) WriteTo(writer io.Writer) error {
 	return err
 }
 
-func (m *Message) ReadFrom(reader io.Reader) error {
-	if err := m.Properties.ReadFrom(reader); err != nil {
+func (m *Message) Decode(reader io.Reader) error {
+	if err := m.Properties.Decode(reader); err != nil {
 		return err
 	}
 	var err error
@@ -384,7 +383,7 @@ func (m *Message) asyncRead(onComplete func(error)) io.WriteCloser {
 		incrAsyncReadGoroutines()
 		defer decrAsyncReadGoroutines()
 
-		err := m.ReadFrom(reader)
+		err := m.Decode(reader)
 		onComplete(err)
 	}()
 	return writer
@@ -405,13 +404,13 @@ func (m *Message) nextFrameToSend(maxSize int) ([]byte, frameFlags) {
 					log.Printf("PANIC in BLIP nextFrameToSend: %v\n%s", p, debug.Stack())
 				}
 			}()
-			defer writer.Close()
+			defer func() { _ = writer.Close() }()
 
 			// Update Expvar stats for number of outstanding goroutines
 			incrNextFrameToSendGoroutines()
 			defer decrNextFrameToSendGoroutines()
 
-			_ = m.WriteTo(writer)
+			_ = m.Encode(writer)
 
 		}()
 	}

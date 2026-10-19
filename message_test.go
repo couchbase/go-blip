@@ -34,7 +34,7 @@ func makeTestRequest() *Message {
 func TestMessageEncoding(t *testing.T) {
 	m := makeTestRequest()
 	var writer bytes.Buffer
-	err := m.WriteTo(&writer)
+	err := m.Encode(&writer)
 	assert.Equal(t, nil, err)
 	serialized := writer.Bytes()
 	assert.Equal(t, "\x25Content-Type\x00ham/rye\x00X-Weather\x00rainy\x00The white knight is sliding down the poker. He balances very badly.", string(serialized))
@@ -42,7 +42,7 @@ func TestMessageEncoding(t *testing.T) {
 
 	m2 := newIncomingMessage(nil, 1, *m.flags.Load(), nil)
 	reader := bytes.NewReader(serialized)
-	err = m2.ReadFrom(reader)
+	err = m2.Decode(reader)
 	assert.Equal(t, nil, err)
 	assert.Equal(t, m.Properties, m2.Properties)
 	mbody, _ := m.Body()
@@ -54,7 +54,7 @@ func TestMessageEncodingCompressed(t *testing.T) {
 	m := makeTestRequest()
 	m.SetCompressed(true)
 	var writer bytes.Buffer
-	err := m.WriteTo(&writer)
+	err := m.Encode(&writer)
 	assert.Equal(t, nil, err)
 	serialized := writer.Bytes()
 
@@ -65,7 +65,7 @@ func TestMessageEncodingCompressed(t *testing.T) {
 
 	m2 := newIncomingMessage(nil, 1, *m.flags.Load(), nil)
 	reader := bytes.NewReader(serialized)
-	err = m2.ReadFrom(reader)
+	err = m2.Decode(reader)
 	assert.Equal(t, nil, err)
 	assert.Equal(t, m.Properties, m2.Properties)
 	assert.Equal(t, m.body, m2.body)
@@ -99,8 +99,8 @@ func TestMessageDecoding(t *testing.T) {
 	original := makeTestRequest()
 	reader, writer := io.Pipe()
 	go func() {
-		require.NoError(t, original.WriteTo(writer))
-		writer.Close()
+		require.NoError(t, original.Encode(writer))
+		require.NoError(t, writer.Close())
 	}()
 
 	incoming := newIncomingMessage(nil, original.number, *original.flags.Load(), reader)
