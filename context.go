@@ -58,7 +58,9 @@ type Context struct {
 	LogMessages         bool                                              // If true, will log about messages
 	LogFrames           bool                                              // If true, will log about frames (very verbose)
 
-	OnExitCallback func() // OnExitCallback callback invoked when the underlying connection closes and the receive loop exits.
+	// OnExitCallback is invoked when the underlying connection closes and the receive loop exits. Sender.Stop and Close wait
+	// for it to return, so it must not call them or wait on anything their caller holds.
+	OnExitCallback func()
 
 	WebsocketPingInterval time.Duration // Time between sending ping frames (if >0)
 
@@ -188,10 +190,13 @@ func (blipCtx *Context) DialConfig(opts *DialOptions) (*Sender, error) {
 	}
 
 	sender := blipCtx.start(ws)
+	// counted so that Sender.Stop waits for OnExitCallback
+	atomic.AddInt32(&sender.activeGoroutines, 1)
 	go func() {
-
 		// If the receiveLoop terminates, stop the sender as well
 		defer sender.Stop()
+		// runs before the deferred Stop, which waits for this counter to reach zero
+		defer atomic.AddInt32(&sender.activeGoroutines, -1)
 
 		// Update Expvar stats for number of outstanding goroutines
 		incrReceiverGoroutines()
